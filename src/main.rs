@@ -1,6 +1,7 @@
 use freedesktop_desktop_entry::{DesktopEntry, Iter, default_paths, get_languages_from_env};
+use shlex::Shlex;
 use slint::ModelRc;
-use std::{error::Error, rc::Rc, thread, time};
+use std::{error::Error, process::Command, rc::Rc, thread, time};
 
 slint::include_modules!();
 
@@ -109,6 +110,33 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Text input handler
     ui.on_text_entered(move |text| {
         println!("Search: {}", text);
+    });
+
+    let ui_weak_clone_item = ui_weak.clone();
+    ui.on_item_clicked(move |idx| {
+        let idx = idx as usize;
+        let entry = &normalized_entries[idx];
+
+        let mut command_string = entry
+            .exec
+            .replace("%U", "")
+            .replace("%F", "")
+            .replace("%u", "")
+            .replace("%f", "");
+
+        let command: Vec<String> = Shlex::new(&command_string).collect();
+
+
+        if let Some((cmd, args)) = command.split_first() {
+            let _ = Command::new(cmd)
+                .args(args)
+                .spawn()
+                .expect("Failed to launch app");
+        }
+
+        if let Some(ui) = ui_weak_clone_item.upgrade() {
+            ui.hide().unwrap();
+        }
     });
 
     // Focus change handler
