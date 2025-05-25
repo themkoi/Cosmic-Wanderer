@@ -1,0 +1,201 @@
+import { ListView, VerticalBox } from "std-widgets.slint";
+
+export struct AppItem {
+    appid: string,
+    iconPath: string,
+}
+
+export struct Theme {
+    window-background: color,
+    selected-item-background: color,
+    selected-icon-background: color,
+    unselected-icon-background: color,
+    item-height: length,
+    item-spacing: length,
+    item-border-radius: length,
+    icon-size: length,
+    input-font-size: length,
+    text-font-size: length,
+    font-family: string,
+    font-weight: int,
+    window-width: length,
+    window-height: length,
+}
+
+export global Palette {
+    in property <color> foreground-color;
+    in property <color> background-color;
+}
+
+export component AppWindow inherits Window {
+    in property <Theme> theme: {
+        window-background: rgb(30, 30, 46, 0.9),
+        selected-item-background: rgb(203, 166, 247, 0.9),
+        selected-icon-background: rgb(30, 30, 46, 0.9),
+        unselected-icon-background: rgb(54, 30, 100, 0.9),
+        item-height: 60px,
+        item-spacing: 10px,
+        icon-size: 40px,
+        input-font-size: 30px,
+        font-family: "JetBrainsMono NF SemiBold",
+        text-font-size: 16px,
+        font-weight: 500,
+        window-width: 400px,
+        window-height: 580px,
+        item-border-radius: 10px
+    };
+    width: self.theme.window-width;
+    height: self.theme.window-height;
+    no-frame: true;
+
+    in-out property <[AppItem]> appItems;
+    in-out property <bool> focused: true;
+    in-out property <bool> scopeFocused: true;
+    in-out property <int> selected_index: 0;
+    in-out property <length> scroll_y: 0px;
+    callback focus_changed(bool);
+    callback text_entered(string);
+    callback item_clicked(int);
+
+    public function focusText() {
+        input.focus();
+    }
+    public function focusMain() {
+        focus_handler.focus();
+    }
+    public function readFocus() {
+        root.focused = TextInputInterface.text-input-focused;
+        root.focus_changed(root.focused);
+    }
+    public function select_item(index: int) {
+        root.selected_index = index;
+    }
+
+    forward-focus: focus_handler;
+    focus_handler := FocusScope {
+        focus-changed-event() => {
+            root.scopeFocused = self.has-focus;
+            root.focus_changed(root.focused);
+        }
+
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.scopeFocused = false;
+                root.focus_changed(root.focused);
+            }
+            accept
+        }
+
+        VerticalLayout {
+            Rectangle {
+                border-width: 3px;
+                border-color: lightslategray;
+                border-radius: root.theme.item-border-radius;
+                width: 100%;
+                x: 0;
+                height: 70px;
+                input := TextInput {
+
+                    horizontal-alignment: left;
+                    width: 100%;
+                    x: root.theme.window-width * 0.05;
+                    height: 70px;
+                    font-weight: root.theme.font-weight;
+                    font-family: root.theme.font-family;
+                    font-size: root.theme.input-font-size;
+                    vertical-alignment: center;
+
+                    key-pressed(event) => {
+                        if (event.text == Key.Escape) {
+                            root.scopeFocused = false;
+                            root.focus_changed(root.scopeFocused);
+                            accept
+                        }
+                        if (event.text == Key.UpArrow) {
+                            root.selected_index = Math.max(root.selected_index - 1, 0);
+                            if (root.selected_index * root.theme.item-height - root.theme.item-height < -list.viewport_y + root.theme.item-height) {
+                                list.viewport_y = -root.selected_index * root.theme.item-height + root.theme.item-height;
+                            }
+                            accept
+                        }
+                        if (event.text == Key.DownArrow) {
+                            root.selected_index = Math.min(root.selected_index + 1, root.appItems.length - 1);
+                            if ((root.selected_index + 1) * root.theme.item-height > (-list.viewport_y + root.theme.window-height - root.theme.item-height)) {
+                                list.viewport_y = -(root.selected_index * root.theme.item-height - (root.theme.window-height - 160px) + root.theme.item-height);
+                            }
+                            accept
+                        }
+                        reject
+                    }
+
+                    accepted => {
+                        root.item_clicked(selected_index);
+                    }
+
+                    edited => {
+                        root.text_entered(self.text);
+                    }
+                }
+            }
+
+            list := ListView {
+                for data[idx] in root.appItems: VerticalLayout {
+                    height: root.theme.item-height;
+                    width: parent.width;
+                    spacing: root.theme.item-spacing;
+                    touch := TouchArea {
+
+                        if touch.has-hover || idx == selected_index: Rectangle {
+                            height: root.theme.item-height - 4px;
+                            border-radius: root.theme.item-border-radius;
+                            background: root.theme.selected-item-background;
+                            x: 5px;
+                            width: parent.width - 40px;
+                        }
+
+                        if !touch.has-hover && idx != selected_index: Rectangle {
+                            height: root.theme.item-height - 4px;
+                            border-radius: root.theme.item-border-radius;
+                            x: 5px;
+                            width: parent.width - 40px;
+                        }
+
+                        // App name
+                        VerticalLayout {
+                            Text {
+                                font-weight: root.theme.font-weight;
+                                overflow: elide;
+                                font-family: root.theme.font-family;
+                                x: root.theme.icon-size + 25px;
+                                vertical-alignment: center;
+                                text: data.appid;
+                                font-size: root.theme.text-font-size;
+                            }
+                        }
+
+                        if idx == selected_index: Rectangle {
+                            x: 15px;
+                            width: root.theme.icon-size;
+                            height: root.theme.icon-size;
+                            background: root.theme.selected-icon-background;
+                        }
+
+                        if idx != selected_index: Rectangle {
+                            x: 15px;
+                            width: root.theme.icon-size;
+                            height: root.theme.icon-size;
+                            background: root.theme.unselected-icon-background;
+                        }
+
+                        clicked => {
+                            selected_index = idx;
+                            root.item_clicked(idx);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    background: self.theme.window-background;
+}

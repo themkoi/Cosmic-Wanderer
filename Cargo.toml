@@ -1,0 +1,13 @@
+[package]
+name = "ap"
+version = "0.1.0"
+edition = "2024"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+slint = "1.11.0"
+freedesktop-desktop-entry = "=0.7.11"
+
+[build-dependencies]
+slint-build = "1.11.0"
