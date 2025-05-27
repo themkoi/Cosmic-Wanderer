@@ -1,72 +1,11 @@
-use freedesktop_desktop_entry::{DesktopEntry, Iter, default_paths, get_languages_from_env};
 use shlex::Shlex;
 use slint::ModelRc;
-use std::{error::Error, process::Command, rc::Rc, thread, time};
+use std::{error::Error, path::Path, process::Command, rc::Rc, thread, time};
+mod entries;
+use entries::DesktopEntryManager;
+use slint::Image;
 
 slint::include_modules!();
-
-struct NormalDesktopEntry {
-    pub appid: String,
-    pub exec: String,
-    pub icon: String,
-    pub path: String,
-}
-
-struct DesktopEntryManager {
-    locales: Vec<String>,
-    desktop_entries: Vec<DesktopEntry>,
-}
-
-impl DesktopEntryManager {
-    fn new() -> Self {
-        let locales = get_languages_from_env();
-        let paths = Iter::new(default_paths());
-        let desktop_entries = paths
-            .filter_map(|path| DesktopEntry::from_path(path, Some(&locales)).ok())
-            .collect();
-
-        Self {
-            locales,
-            desktop_entries,
-        }
-    }
-
-    fn get_normalized_entries(&self) -> Vec<NormalDesktopEntry> {
-        let mut entries = Vec::new();
-        let mut seen_names = std::collections::HashSet::new();
-
-        for entry in &self.desktop_entries {
-            // Skip if we've already seen this appid (deduplication)
-            let name = match entry.name(&self.locales) {
-                Some(name) => name.to_string(),
-                None => continue, // Skip entries without names
-            };
-
-            // Skip if we've already seen this name
-            if seen_names.contains(&name) {
-                continue;
-            }
-            // Get required fields with fallbacks
-            let appid = entry.name(&self.locales).unwrap_or_default().to_string();
-            let path = entry.path.to_str().unwrap_or_default().to_string();
-            let exec = entry.exec().unwrap_or_default().to_string();
-            let icon = entry.icon().unwrap_or_default().to_string();
-
-            // Create the normalized entry
-            let nde = NormalDesktopEntry {
-                appid,
-                path,
-                exec,
-                icon,
-            };
-
-            entries.push(nde);
-            seen_names.insert(name);
-        }
-
-        entries
-    }
-}
 
 fn main() -> Result<(), Box<dyn Error>> {
     let manager = DesktopEntryManager::new();
@@ -80,7 +19,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             .iter()
             .map(|entry| AppItem {
                 appid: entry.appid.clone().into(),
-                iconPath: entry.icon.clone().into(),
+                icon: Image::load_from_path(entry.icon.as_ref()).unwrap_or_else(|err| {
+                    eprintln!("failed to load image '{}': {}", entry.icon, err);
+                    Image::default()
+                }),
             })
             .collect::<Vec<_>>(),
     );
@@ -117,7 +59,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let idx = idx as usize;
         let entry = &normalized_entries[idx];
 
-        let mut command_string = entry
+        let command_string = entry
             .exec
             .replace("%U", "")
             .replace("%F", "")
@@ -125,7 +67,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             .replace("%f", "");
 
         let command: Vec<String> = Shlex::new(&command_string).collect();
-
 
         if let Some((cmd, args)) = command.split_first() {
             let _ = Command::new(cmd)

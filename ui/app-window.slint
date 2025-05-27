@@ -2,7 +2,7 @@ import { ListView, VerticalBox, LineEdit } from "std-widgets.slint";
 
 export struct AppItem {
     appid: string,
-    iconPath: string,
+    icon: image,
 }
 
 export struct Theme {
@@ -49,6 +49,7 @@ export component AppWindow inherits Window {
     width: self.theme.window-width;
     height: self.theme.window-height;
     no-frame: true;
+    title: "Cosmic Wanderer";
 
     in-out property <[AppItem]> appItems;
     in-out property <bool> focused: true;
@@ -169,19 +170,11 @@ export component AppWindow inherits Window {
                                 font-size: root.theme.text-font-size;
                             }
                         }
-
-                        if idx == selected_index: Rectangle {
+                        Image {
+                            source: data.icon;
+                            width: 45px;
+                            height: 45px;
                             x: 15px;
-                            width: root.theme.icon-size;
-                            height: root.theme.icon-size;
-                            background: root.theme.selected-icon-background;
-                        }
-
-                        if idx != selected_index: Rectangle {
-                            x: 15px;
-                            width: root.theme.icon-size;
-                            height: root.theme.icon-size;
-                            background: root.theme.unselected-icon-background;
                         }
 
                         clicked => {
