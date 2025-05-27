@@ -1,5 +1,5 @@
 use shlex::Shlex;
-use slint::ModelRc;
+use slint::{set_xdg_app_id, ModelRc};
 use std::{error::Error, process::Command, rc::Rc, thread, time, time::Instant};
 mod entries;
 use entries::DesktopEntryManager;
@@ -11,6 +11,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let start = Instant::now();
     let manager = DesktopEntryManager::new();
     let normalized_entries = manager.get_normalized_entries();
+    let _ = set_xdg_app_id("Cosmic Wanderer");
 
     let ui = AppWindow::new()?;
     let ui_weak = ui.as_weak();
