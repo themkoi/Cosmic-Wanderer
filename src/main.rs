@@ -1,6 +1,6 @@
 use shlex::Shlex;
 use slint::ModelRc;
-use std::{error::Error, path::Path, process::Command, rc::Rc, thread, time};
+use std::{error::Error, process::Command, rc::Rc, thread, time, time::Instant};
 mod entries;
 use entries::DesktopEntryManager;
 use slint::Image;
@@ -8,6 +8,7 @@ use slint::Image;
 slint::include_modules!();
 
 fn main() -> Result<(), Box<dyn Error>> {
+    let start = Instant::now();
     let manager = DesktopEntryManager::new();
     let normalized_entries = manager.get_normalized_entries();
 
@@ -19,10 +20,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .iter()
             .map(|entry| AppItem {
                 appid: entry.appid.clone().into(),
-                icon: Image::load_from_path(entry.icon.as_ref()).unwrap_or_else(|err| {
-                    eprintln!("failed to load image '{}': {}", entry.icon, err);
-                    Image::default()
-                }),
+                icon: Image::load_from_path(entry.icon.as_ref()).unwrap_or_else(|_| Image::default()),
             })
             .collect::<Vec<_>>(),
     );
@@ -90,6 +88,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
 
     ui.invoke_focusText();
+    println!("Time taken: {:?}", start.elapsed());
     ui.run()?;
     Ok(())
 }

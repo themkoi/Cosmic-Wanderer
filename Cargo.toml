@@ -3,16 +3,15 @@ name = "ap"
 version = "0.1.0"
 edition = "2024"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-
-[env]
-SLINT_STYLE = 'cosmic'
-
 [dependencies]
 slint = { git = "https://github.com/slint-ui/slint", rev = "c18b3cf02fc6a8d45e7ec8d2f6f2e665fd429f2b" }
 freedesktop-desktop-entry = "=0.7.11"
 shlex = "1.3.0"
 freedesktop-icons = "0.3.1"
+
 [build-dependencies]
 slint-build = { git = "https://github.com/slint-ui/slint", rev = "c18b3cf02fc6a8d45e7ec8d2f6f2e665fd429f2b" }
+
+[profile.release]
+lto = true
+opt-level = "z"        # or "s" for better speed/size tradeoff

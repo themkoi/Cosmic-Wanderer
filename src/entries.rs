@@ -1,6 +1,4 @@
-use freedesktop_desktop_entry::{
-    DesktopEntry, Iter, default_paths, desktop_entries, get_languages_from_env,
-};
+use freedesktop_desktop_entry::{DesktopEntry, Iter, default_paths, get_languages_from_env};
 use freedesktop_icons::lookup;
 
 pub struct NormalDesktopEntry {
@@ -8,7 +6,6 @@ pub struct NormalDesktopEntry {
     pub categories: Option<Vec<String>>,
     pub exec: String,
     pub icon: String,
-    pub path: String,
 }
 
 pub struct DesktopEntryManager {
@@ -42,20 +39,17 @@ impl DesktopEntryManager {
         let mut seen_names: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         for entry in &self.desktop_entries {
-            let entry_copy = entry;
-            // Skip if we've already seen this appid (deduplication)
             let name = match entry.name(&self.locales) {
                 Some(name) => name.to_string(),
-                None => continue, // Skip entries without names
+                None => continue,
             };
 
-            // Skip if we've already seen this name
             let normalized_name = normalize_name(&name);
 
             let mut replace = false;
             let mut index_opt: Option<usize> = None;
 
-            if entry_copy.no_display() {
+            if entry.no_display() {
                 continue;
             }
 
@@ -80,38 +74,37 @@ impl DesktopEntryManager {
                 }
             }
 
-            let icon_name = entry_copy.icon().unwrap_or_default().to_string();
+            let icon_name = entry.icon().unwrap_or_default().to_string();
 
-            let icon = lookup(&icon_name)
+            let mut icon = lookup(&icon_name)
                 .with_cache()
                 .with_theme("Papirus-Dark")
-                .find()
-                .or_else(|| {
-                    entry_copy
-                        .name(&self.locales)
-                        .unwrap_or_default()
-                        .to_string();
-                    lookup(&icon_name).with_cache().find()
-                });
+                .find();
 
-            let icon_path = icon.unwrap_or_default().to_string_lossy().to_string();
+            let mut icon_path = icon.unwrap_or_default().to_string_lossy().to_string();
+
+            if icon_path.is_empty() {
+                icon = lookup("application-x-executable")
+                    .with_cache()
+                    .with_theme("Papirus-Dark")
+                    .find();
+                icon_path = icon.unwrap_or_default().to_string_lossy().to_string();
+            }
 
             // Get required fields with fallbacks
-            let appid = entry_copy
+            let appid = entry
                 .name(&self.locales)
                 .unwrap_or_default()
                 .to_string();
-            let path = entry_copy.path.to_str().unwrap_or_default().to_string();
-            let exec = entry_copy.exec().unwrap_or_default().to_string();
+            let exec = entry.exec().unwrap_or_default().to_string();
             let icon = icon_path;
-            let categories = entry_copy
+            let categories = entry
                 .categories()
                 .map(|v| v.iter().map(|s| s.to_string()).collect::<Vec<String>>());
 
             // Create the normalized entry
             let nde = NormalDesktopEntry {
                 appid,
-                path,
                 exec,
                 icon,
                 categories,
