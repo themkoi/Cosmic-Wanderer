@@ -2,20 +2,22 @@ import { ListView, VerticalBox, LineEdit } from "std-widgets.slint";
 
 export struct AppItem {
     appid: string,
+    comment: string,
     icon: image,
 }
 
 export struct Theme {
     window-background: color,
     selected-item-background: color,
-    selected-icon-background: color,
-    unselected-icon-background: color,
+    selected-text-color: color,
+    unselected-text-color: color,
     item-height: length,
     item-spacing: length,
     item-border-radius: length,
     icon-size: length,
     input-font-size: length,
     text-font-size: length,
+    comment-font-size: length,
     font-family: string,
     font-weight: int,
     window-width: length,
@@ -31,16 +33,17 @@ export global Palette {
 export component AppWindow inherits Window {
     in property <Theme> theme: {
         window-background: rgb(30, 30, 46, 0.6),
-        selected-item-background: rgb(203, 166, 247, 0.9),
-        selected-icon-background: rgb(30, 30, 46, 0.9),
-        unselected-icon-background: rgb(54, 30, 100, 0.9),
-        item-height: 60px,
-        item-spacing: 10px,
-        icon-size: 40px,
+        selected-item-background: rgb(203, 166, 247, 1),
+        selected-text-color: rgb(24, 24, 37, 1),
+        unselected-text-color: rgb(205, 214, 244,1),
+        item-height: 65px,
+        item-spacing: 5px,
+        icon-size: 48px,
         input-font-size: 20px,
         font-family: "JetBrainsMono NF SemiBold",
-        text-font-size: 16px,
-        font-weight: 500,
+        text-font-size: 17px,
+        comment-font-size: 12px,
+        font-weight: 650,
         window-width: 400px,
         window-height: 580px,
         item-border-radius: 10px,
@@ -114,7 +117,7 @@ export component AppWindow inherits Window {
                 }
                 if (event.text == Key.DownArrow) {
                     root.selected_index = Math.min(root.selected_index + 1, root.appItems.length - 1);
-                    if ((root.selected_index + 1) * root.theme.item-height > (-list.viewport_y + root.theme.window-height - root.theme.item-height *2)) {
+                    if ((root.selected_index + 1) * root.theme.item-height > (-list.viewport_y + root.theme.window-height - root.theme.item-height * 2)) {
                         list.viewport_y = -(root.selected_index * root.theme.item-height - (root.theme.window-height - 150px) + root.theme.item-height);
                     }
                     accept
@@ -143,38 +146,51 @@ export component AppWindow inherits Window {
                     spacing: root.theme.item-spacing;
                     touch := TouchArea {
 
-                        if touch.has-hover || idx == selected_index: Rectangle {
+                        Rectangle {
                             height: root.theme.item-height - 4px;
                             border-radius: root.theme.item-border-radius;
-                            background: root.theme.selected-item-background;
+                            background: touch.has-hover || idx == selected_index ? root.theme.selected-item-background : rgb(0,0,0,0);
+                            animate background { duration: 150ms; }
                             x: 5px;
                             width: parent.width - 40px;
                         }
 
-                        if !touch.has-hover && idx != selected_index: Rectangle {
-                            height: root.theme.item-height - 4px;
-                            border-radius: root.theme.item-border-radius;
-                            x: 5px;
-                            width: parent.width - 40px;
+                        Text {
+                            font-weight: root.theme.font-weight;
+                            overflow: elide;
+                            font-family: root.theme.font-family;
+                            font-size: root.theme.comment-font-size;
+                            x: root.theme.icon-size + 25px;
+                            y: root.theme.item-height * 0.40;
+                            height: root.theme.item-height * 0.55;
+                            width: root.theme.window-width - (root.theme.icon-size + 25px) - 40px;
+                            vertical-alignment: center;
+                            wrap: word-wrap;
+                            text: data.comment;
+                            color: touch.has-hover || idx == selected_index ? root.theme.selected-text-color : root.theme.unselected-text-color;
+                            animate color { duration: 150ms; }
                         }
 
-                        // App name
-                        VerticalLayout {
-                            Text {
-                                font-weight: root.theme.font-weight;
-                                overflow: elide;
-                                font-family: root.theme.font-family;
-                                x: root.theme.icon-size + 25px;
-                                vertical-alignment: center;
-                                text: data.appid;
-                                font-size: root.theme.text-font-size;
-                            }
+                        Text {
+                            font-weight: root.theme.font-weight;
+                            overflow: elide;
+                            font-family: root.theme.font-family;
+                            font-size: root.theme.text-font-size;
+                            x: root.theme.icon-size + 25px;
+                            y: data.comment == "" ? root.theme.item-height * 0.3 : root.theme.item-height * 0.12;
+                            height: root.theme.text-font-size + 5px;
+                            width: root.theme.window-width - (root.theme.icon-size + 25px) - 40px;
+                            vertical-alignment: top;
+                            text: data.appid;
+                            color: touch.has-hover || idx == selected_index ? root.theme.selected-text-color : root.theme.unselected-text-color;
+                            animate color { duration: 150ms; }
                         }
+
                         Image {
                             source: data.icon;
-                            width: 45px;
-                            height: 45px;
-                            x: 15px;
+                            width: root.theme.icon-size;
+                            height: root.theme.icon-size;
+                            x: root.theme.window-width * 0.0375;
                         }
 
                         clicked => {

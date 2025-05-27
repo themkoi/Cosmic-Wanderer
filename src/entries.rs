@@ -3,6 +3,7 @@ use freedesktop_icons::lookup;
 
 pub struct NormalDesktopEntry {
     pub appid: String,
+    pub comment: String,
     pub categories: Option<Vec<String>>,
     pub exec: String,
     pub icon: String,
@@ -53,6 +54,7 @@ impl DesktopEntryManager {
                 continue;
             }
 
+
             if seen_names
                 .iter()
                 .any(|n| normalize_name(n) == normalized_name)
@@ -101,6 +103,7 @@ impl DesktopEntryManager {
             let categories = entry
                 .categories()
                 .map(|v| v.iter().map(|s| s.to_string()).collect::<Vec<String>>());
+            let comment = entry.comment(&self.locales).unwrap_or_default().to_string();
 
             // Create the normalized entry
             let nde = NormalDesktopEntry {
@@ -108,6 +111,7 @@ impl DesktopEntryManager {
                 exec,
                 icon,
                 categories,
+                comment,
             };
 
             if replace == true {

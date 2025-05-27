@@ -1,11 +1,26 @@
 use shlex::Shlex;
-use slint::{set_xdg_app_id, ModelRc};
+use slint::{ModelRc, set_xdg_app_id};
 use std::{error::Error, process::Command, rc::Rc, thread, time, time::Instant};
 mod entries;
 use entries::DesktopEntryManager;
+use entries::NormalDesktopEntry;
 use slint::Image;
 
 slint::include_modules!();
+
+fn create_slint_items(normalized_entries: &[NormalDesktopEntry]) -> slint::VecModel<AppItem> {
+    slint::VecModel::from(
+        normalized_entries
+            .iter()
+            .map(|entry| AppItem {
+                appid: entry.appid.clone().into(),
+                comment: entry.comment.clone().into(),
+                icon: Image::load_from_path(entry.icon.as_ref())
+                    .unwrap_or_else(|_| Image::default()),
+            })
+            .collect::<Vec<_>>(),
+    )
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
     let start = Instant::now();
@@ -16,15 +31,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let ui = AppWindow::new()?;
     let ui_weak = ui.as_weak();
 
-    let slint_items = slint::VecModel::from(
-        normalized_entries
-            .iter()
-            .map(|entry| AppItem {
-                appid: entry.appid.clone().into(),
-                icon: Image::load_from_path(entry.icon.as_ref()).unwrap_or_else(|_| Image::default()),
-            })
-            .collect::<Vec<_>>(),
-    );
+    let slint_items = create_slint_items(&normalized_entries);
 
     ui.set_appItems(ModelRc::new(Rc::new(slint_items)));
 
