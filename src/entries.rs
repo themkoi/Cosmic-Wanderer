@@ -1,6 +1,7 @@
 use freedesktop_desktop_entry::{DesktopEntry, Iter, default_paths, get_languages_from_env};
 use freedesktop_icons::lookup;
 
+#[derive(Clone)]
 pub struct NormalDesktopEntry {
     pub appid: String,
     pub comment: String,
