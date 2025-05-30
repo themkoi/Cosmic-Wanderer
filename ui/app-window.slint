@@ -59,6 +59,7 @@ export component AppWindow inherits Window {
     in-out property <bool> scopeFocused: true;
     in-out property <int> selected_index: 0;
     in-out property <length> scroll_y: 0px;
+    in-out property <string> text_input;
     callback focus_changed(bool);
     callback text_entered(string);
     callback item_clicked(int);
@@ -93,7 +94,7 @@ export component AppWindow inherits Window {
         }
 
         input := LineEdit {
-
+            text <=> root.text_input;
             horizontal-alignment: left;
             width: root.theme.window-width * 0.96;
             x: root.theme.window-width * 0.02;
