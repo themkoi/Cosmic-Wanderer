@@ -1,61 +1,37 @@
 use shlex::Shlex;
 use slint::{Image, ModelRc, SharedString, Timer, TimerMode, set_xdg_app_id};
 use std::{
-    cmp::Ordering,
+    collections::HashMap,
     error::Error,
     fs,
-    io::{BufRead, BufReader},
-    os::unix::net::UnixListener,
-    process::Command,
+    os::unix::{net::UnixListener, process::CommandExt},
+    process::{Command, Stdio},
     rc::Rc,
-    sync::{Mutex, OnceLock},
-    thread, time,
+    sync::{LazyLock, Mutex},
     time::Instant,
 };
 mod entries;
 use entries::DesktopEntryManager;
 use entries::NormalDesktopEntry;
-use fuzzy_matcher::FuzzyMatcher;
-use fuzzy_matcher::skim::SkimMatcherV2;
+
+mod history;
+use crate::history::*;
 
 static SOCKET_PATH: &str = "/tmp/comsic-wanderer.sock";
 
 slint::include_modules!();
 
 // Global storage for desktop entries
-static ENTRIES: OnceLock<Mutex<Vec<NormalDesktopEntry>>> = OnceLock::new();
+static ENTRIES: Mutex<Vec<NormalDesktopEntry>> = Mutex::new(Vec::new());
 
 fn get_entries() -> &'static Mutex<Vec<NormalDesktopEntry>> {
-    ENTRIES.get_or_init(|| Mutex::new(Vec::new()))
+    &ENTRIES
 }
 
-fn filter_and_sort_entries(
-    text: &str,
-    normalized_entries: &[NormalDesktopEntry],
-    matcher: &SkimMatcherV2,
-) -> Vec<NormalDesktopEntry> {
-    let mut matched_entries: Vec<(i64, Vec<usize>, NormalDesktopEntry)> = normalized_entries
-        .iter()
-        .filter_map(|entry| {
-            matcher
-                .fuzzy_indices(&entry.appid, text)
-                .map(|(score, indices)| (score, indices, entry.clone()))
-        })
-        .collect();
+static GLOBAL_HISTORY: LazyLock<Mutex<HistoryMap>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
-    matched_entries.sort_by(|a, b| {
-        let score_cmp = b.0.cmp(&a.0);
-        if score_cmp == Ordering::Equal {
-            a.2.appid.len().cmp(&b.2.appid.len())
-        } else {
-            score_cmp
-        }
-    });
-
-    matched_entries
-        .into_iter()
-        .map(|(_, _, entry)| entry)
-        .collect()
+fn get_history() -> &'static Mutex<HistoryMap> {
+    &GLOBAL_HISTORY
 }
 
 fn create_slint_items(normalized_entries: &[NormalDesktopEntry]) -> slint::VecModel<AppItem> {
@@ -63,7 +39,7 @@ fn create_slint_items(normalized_entries: &[NormalDesktopEntry]) -> slint::VecMo
         normalized_entries
             .iter()
             .map(|entry| AppItem {
-                appid: entry.appid.clone().into(),
+                app_name: entry.app_name.clone().into(),
                 comment: entry.comment.clone().into(),
                 icon: Image::load_from_path(entry.icon.as_ref())
                     .unwrap_or_else(|_| Image::default()),
@@ -73,8 +49,15 @@ fn create_slint_items(normalized_entries: &[NormalDesktopEntry]) -> slint::VecMo
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    env_logger::init_from_env(
+        env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "off"),
+    );
+
     let start = Instant::now();
     let manager = DesktopEntryManager::new();
+
+    let loaded = load_history();
+    *get_history().try_lock().unwrap() = loaded;
 
     let normalized_entries: Vec<NormalDesktopEntry> = manager.get_normalized_entries();
     let cloned_iter: std::iter::Cloned<std::slice::Iter<'_, NormalDesktopEntry>> =
@@ -83,47 +66,48 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     {
         let entries = search_entries;
-        *get_entries().lock().unwrap() = entries;
+        *get_entries().try_lock().unwrap() = entries;
     }
 
-    let _ = set_xdg_app_id("Cosmic Wanderer");
+    let _ = set_xdg_app_id("cosmic-wanderer");
     let ui = AppWindow::new()?;
     let ui_weak = ui.as_weak();
 
     let slint_items = {
-        let entries = get_entries().lock().unwrap();
+        let entries = get_entries().try_lock().unwrap();
         create_slint_items(&entries)
     };
 
     ui.set_appItems(ModelRc::new(Rc::new(slint_items)));
 
-    let ui_weak_clone = ui.as_weak();
-    thread::spawn(move || {
-        loop {
-            slint::invoke_from_event_loop({
-                let ui_weak = ui_weak_clone.clone();
-                move || {
-                    if let Some(ui) = ui_weak.upgrade() {
-                        let scope_focused: bool = ui.get_scopeFocused();
-                        if !scope_focused {
-                            ui.invoke_readFocus();
-                        }
-                    }
+    let ui_weak_focus = ui.as_weak();
+    let timer_focus = slint::Timer::default();
+    timer_focus.start(
+        slint::TimerMode::Repeated,
+        std::time::Duration::from_millis(200),
+        move || {
+            if let Some(ui) = ui_weak_focus.upgrade() {
+                if !ui.get_scopeFocused() {
+                    ui.invoke_readFocus();
                 }
-            })
-            .unwrap();
-            thread::sleep(time::Duration::from_millis(500));
-        }
-    });
+            }
+        },
+    );
 
-    let matcher = SkimMatcherV2::default();
     let ui_weak_clone_text = ui.as_weak();
     ui.on_text_entered(move |text| {
-        let sorted_entries = filter_and_sort_entries(&text, &normalized_entries, &matcher);
-        *get_entries().lock().unwrap() = sorted_entries;
+        if !text.is_empty() {
+            let sorted_entries =
+                DesktopEntryManager::filter_and_sort_entries(&text, &normalized_entries);
+            *get_entries().try_lock().unwrap() = sorted_entries;
+        } else {
+            let history = get_history().try_lock().unwrap();
+            let sorted_entries = sorted_entries_by_usage(&normalized_entries, &history);
+            *get_entries().try_lock().unwrap() = sorted_entries.iter().cloned().cloned().collect();
+        }
 
         if let Some(ui) = ui_weak_clone_text.upgrade() {
-            let model = create_slint_items(&get_entries().lock().unwrap());
+            let model = create_slint_items(&get_entries().try_lock().unwrap());
             ui.set_appItems(ModelRc::new(Rc::new(model)));
         }
     });
@@ -131,8 +115,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     let ui_weak_clone_item = ui.as_weak();
     ui.on_item_clicked(move |idx| {
         let idx = idx as usize;
-        let entries = get_entries().lock().unwrap();
+        let entries = get_entries().try_lock().unwrap();
         let entry = &entries[idx];
+
+        let mut history = get_history().try_lock().unwrap();
+
+        increment_usage(&mut *history, &entry.appid);
+        save_history(&history);
 
         let command_string = entry
             .exec
@@ -144,10 +133,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         let command: Vec<String> = Shlex::new(&command_string).collect();
 
         if let Some((cmd, args)) = command.split_first() {
-            let _ = Command::new(cmd)
+            let mut command = Command::new(cmd);
+            command
                 .args(args)
-                .spawn()
-                .expect("Failed to launch app");
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+
+            unsafe {
+                command.pre_exec(|| {
+                    libc::setsid(); // detach from terminal and parent process group
+                    Ok(())
+                });
+            }
+
+            command.spawn().expect("Failed to spawn detached process");
         }
 
         if let Some(ui) = ui_weak_clone_item.upgrade() {
@@ -176,20 +176,15 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     timer_listener.start(
         TimerMode::Repeated,
-        std::time::Duration::from_millis(50),
+        std::time::Duration::from_millis(70),
         move || {
-            for stream_result in listener.incoming() {
-                match stream_result {
-                    Ok(_) => {
-                        let ui_weak = ui_weak.clone();
-                        if let Some(ui) = ui_weak.upgrade() {
-                            ui.set_text_input(SharedString::from(""));
-                            ui.invoke_text_entered(SharedString::from(""));
-                            ui.invoke_focusText();
-                            ui.show().unwrap();
-                        }
-                    }
-                    Err(_) => break,
+            while let Ok((_stream, _addr)) = listener.accept() {
+                if let Some(ui) = ui_weak.clone().upgrade() {
+                    ui.set_text_input(SharedString::from(""));
+                    ui.invoke_text_entered(SharedString::from(""));
+                    ui.invoke_focusText();
+                    ui.set_selected_index(0);
+                    ui.show().unwrap();
                 }
             }
         },

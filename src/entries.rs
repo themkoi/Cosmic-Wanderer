@@ -1,10 +1,14 @@
 use freedesktop_desktop_entry::{DesktopEntry, Iter, default_paths, get_languages_from_env};
 use freedesktop_icons::lookup;
+use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
+use std::cmp::Ordering;
 
 #[derive(Clone)]
 pub struct NormalDesktopEntry {
-    pub appid: String,
+    pub app_name: String,
     pub comment: String,
+    pub appid: String,
     pub categories: Option<Vec<String>>,
     pub exec: String,
     pub icon: String,
@@ -55,14 +59,13 @@ impl DesktopEntryManager {
                 continue;
             }
 
-
             if seen_names
                 .iter()
                 .any(|n| normalize_name(n) == normalized_name)
             {
                 index_opt = entries
                     .iter()
-                    .position(|e: &NormalDesktopEntry| normalize_name(&e.appid) == normalized_name);
+                    .position(|e: &NormalDesktopEntry| normalize_name(&e.app_name) == normalized_name);
 
                 if let Some(index) = index_opt {
                     if entries[index].icon.is_empty() {
@@ -95,24 +98,23 @@ impl DesktopEntryManager {
             }
 
             // Get required fields with fallbacks
-            let appid = entry
-                .name(&self.locales)
-                .unwrap_or_default()
-                .to_string();
+            let app_name = entry.name(&self.locales).unwrap_or_default().to_string();
             let exec = entry.exec().unwrap_or_default().to_string();
             let icon = icon_path;
             let categories = entry
                 .categories()
                 .map(|v| v.iter().map(|s| s.to_string()).collect::<Vec<String>>());
             let comment = entry.comment(&self.locales).unwrap_or_default().to_string();
+            let appid= entry.appid.clone();
 
             // Create the normalized entry
             let nde = NormalDesktopEntry {
-                appid,
+                app_name,
                 exec,
                 icon,
                 categories,
                 comment,
+                appid,
             };
 
             if replace == true {
@@ -127,5 +129,34 @@ impl DesktopEntryManager {
         }
 
         entries
+    }
+
+    pub fn filter_and_sort_entries(
+        text: &str,
+        normalized_entries: &[NormalDesktopEntry],
+    ) -> Vec<NormalDesktopEntry> {
+        let matcher = SkimMatcherV2::default();
+        let mut matched_entries: Vec<(i64, Vec<usize>, NormalDesktopEntry)> = normalized_entries
+            .iter()
+            .filter_map(|entry| {
+                matcher
+                    .fuzzy_indices(&entry.app_name, text)
+                    .map(|(score, indices)| (score, indices, entry.clone()))
+            })
+            .collect();
+
+        matched_entries.sort_by(|a, b| {
+            let score_cmp = b.0.cmp(&a.0);
+            if score_cmp == Ordering::Equal {
+                a.2.app_name.len().cmp(&b.2.app_name.len())
+            } else {
+                score_cmp
+            }
+        });
+
+        matched_entries
+            .into_iter()
+            .map(|(_, _, entry)| entry)
+            .collect()
     }
 }

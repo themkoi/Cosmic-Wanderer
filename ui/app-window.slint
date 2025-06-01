@@ -1,7 +1,7 @@
 import { ListView, VerticalBox, LineEdit } from "std-widgets.slint";
 
 export struct AppItem {
-    appid: string,
+    app_name: string,
     comment: string,
     icon: image,
 }
@@ -182,7 +182,7 @@ export component AppWindow inherits Window {
                             height: root.theme.text-font-size + 5px;
                             width: root.theme.window-width - (root.theme.icon-size + 25px) - 40px;
                             vertical-alignment: top;
-                            text: data.appid;
+                            text: data.app_name;
                             color: touch.has-hover || idx == selected_index ? root.theme.selected-text-color : root.theme.unselected-text-color;
                             animate color { duration: 150ms; }
                         }
