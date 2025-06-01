@@ -58,7 +58,6 @@ export component AppWindow inherits Window {
     in-out property <bool> focused: true;
     in-out property <bool> scopeFocused: true;
     in-out property <int> selected_index: 0;
-    in-out property <length> scroll_y: 0px;
     in-out property <string> text_input;
     callback focus_changed(bool);
     callback text_entered(string);
@@ -76,6 +75,9 @@ export component AppWindow inherits Window {
     }
     public function select_item(index: int) {
         root.selected_index = index;
+    }
+    public function set_scroll(scroll_y: length) {
+        list.viewport_y = scroll_y;
     }
 
     forward-focus: focus_handler;

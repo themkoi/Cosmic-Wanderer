@@ -184,6 +184,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     ui.invoke_text_entered(SharedString::from(""));
                     ui.invoke_focusText();
                     ui.set_selected_index(0);
+                    ui.invoke_set_scroll(0.0);
                     ui.show().unwrap();
                 }
             }
