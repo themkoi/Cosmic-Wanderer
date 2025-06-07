@@ -162,7 +162,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             unsafe {
                 command.pre_exec(|| {
-                    libc::setsid(); // detach from terminal and parent process group
+                    libc::setsid();
                     Ok(())
                 });
             }
