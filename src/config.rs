@@ -1,9 +1,9 @@
 use config::{Config as ConfigLoader, File};
 use dirs::config_dir;
 use serde::{Deserialize, Serialize};
-use std::{fs};
-use std::path::{Path, PathBuf};
 use slint::Color;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ConfigColor {
@@ -32,6 +32,7 @@ pub struct ThemeConfig {
     pub window_height: u32,
     pub window_border_width: u32,
     pub input_height: u32,
+    pub animation_duration: i64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -87,6 +88,7 @@ fn default_config() -> Config {
             window_height: 580,
             window_border_width: 2,
             input_height: 70,
+            animation_duration: 100,
         },
         general: GeneralConfig {
             icon_theme: "Papirus-Dark".to_string(),
@@ -128,4 +130,3 @@ pub fn load_or_create_config() -> Result<Config, Box<dyn std::error::Error>> {
 
     Ok(loaded)
 }
-

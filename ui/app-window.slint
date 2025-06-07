@@ -26,6 +26,7 @@ export struct ThemeSlint {
     window-height: length,
     window-border-width: length,
     input-height: length,
+    animation-time: duration
 }
 
 export global Palette {
@@ -52,7 +53,8 @@ export component AppWindow inherits Window {
         window-border-width: 2px,
         item-border-radius: 10px,
         input-height: 70px,
-        input-border-width: 3px
+        input-border-width: 3px,
+        animation-time: 100ms
     };
     width: self.theme.window-width;
     height: self.theme.window-height;
@@ -192,7 +194,7 @@ export component AppWindow inherits Window {
                             height: root.theme.item-height - 4px;
                             border-radius: root.theme.item-border-radius;
                             background: touch.has-hover || idx == selected_index ? root.theme.selected-item-background : rgb(0,0,0,0);
-                            animate background { duration: 100ms; }
+                            animate background { duration: root.theme.animation-time; }
                             x: 0px;
                             width: parent.width;
                         }
@@ -210,7 +212,7 @@ export component AppWindow inherits Window {
                             wrap: word-wrap;
                             text: data.comment;
                             color: touch.has-hover || idx == selected_index ? root.theme.selected-text-color : root.theme.unselected-text-color;
-                            animate color { duration: 100ms; }
+                            animate color { duration: root.theme.animation-time; }
                         }
 
                         Text {
@@ -225,7 +227,7 @@ export component AppWindow inherits Window {
                             vertical-alignment: top;
                             text: data.app_name;
                             color: touch.has-hover || idx == selected_index ? root.theme.selected-text-color : root.theme.unselected-text-color;
-                            animate color { duration: 100ms; }
+                            animate color { duration: root.theme.animation-time; }
                         }
 
                         Image {

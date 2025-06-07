@@ -80,6 +80,7 @@ fn theme_from_config(theme: &config::ThemeConfig) -> ThemeSlint {
         window_height: theme.window_height as f32,
         window_border_width: theme.window_border_width as f32,
         input_height: theme.input_height as f32,
+        animation_time: theme.animation_duration as i64
     }
 }
 
