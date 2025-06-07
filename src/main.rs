@@ -19,7 +19,9 @@ use entries::NormalDesktopEntry;
 mod history;
 use crate::history::*;
 
-static SOCKET_PATH: &str = "/tmp/comsic-wanderer.sock";
+mod config;
+use config::{load_or_create_config,config_color_to_slint};
+
 
 slint::include_modules!();
 
@@ -58,6 +60,30 @@ fn create_slint_items(normalized_entries: &[NormalDesktopEntry]) -> slint::VecMo
     )
 }
 
+fn theme_from_config(theme: &config::ThemeConfig) -> ThemeSlint {
+    ThemeSlint {
+        window_background: config_color_to_slint(&theme.window_background),
+        selected_item_background: config_color_to_slint(&theme.selected_item_background),
+        selected_text_color: config_color_to_slint(&theme.selected_text_color),
+        unselected_text_color: config_color_to_slint(&theme.unselected_text_color),
+        item_height: theme.item_height as f32,
+        item_spacing: theme.item_spacing as f32,
+        item_border_radius: theme.item_border_radius as f32,
+        icon_size: theme.icon_size as f32,
+        input_font_size: theme.input_font_size as f32,
+        input_border_width: theme.input_border_width as f32,
+        text_font_size: theme.text_font_size as f32,
+        comment_font_size: theme.comment_font_size as f32,
+        font_family: theme.font_family.clone().into(),
+        font_weight: theme.font_weight,
+        window_width: theme.window_width as f32,
+        window_height: theme.window_height as f32,
+        window_border_width: theme.window_border_width as f32,
+        input_height: theme.input_height as f32,
+    }
+}
+
+
 pub fn send_notification(message: &str) {
     if let Err(e) = Notification::new()
         .summary("Cosmic wanderer")
@@ -69,6 +95,7 @@ pub fn send_notification(message: &str) {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    let config = load_or_create_config()?;
     env_logger::init_from_env(
         env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "off"),
     );
@@ -79,7 +106,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let loaded = load_history();
     *get_history().try_lock().unwrap() = loaded;
 
-    let normalized_entries: Vec<NormalDesktopEntry> = manager.get_normalized_entries();
+    let normalized_entries: Vec<NormalDesktopEntry> = manager.get_normalized_entries(config.general.icon_theme);
     let cloned_iter: std::iter::Cloned<std::slice::Iter<'_, NormalDesktopEntry>> =
         normalized_entries.iter().cloned();
     let search_entries: Vec<NormalDesktopEntry> = cloned_iter.collect();
@@ -92,6 +119,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let _ = set_xdg_app_id("cosmic-wanderer");
     let ui = AppWindow::new()?;
     let ui_weak = ui.as_weak();
+
+    let theme = theme_from_config(&config.theme);
+    ui.set_theme(theme);
 
     let slint_items = {
         let entries = get_entries().try_lock().unwrap();
@@ -189,11 +219,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
 
     ui.invoke_focusText();
-    println!("Time taken: {:?}", start.elapsed());
-    let _ = fs::remove_file(SOCKET_PATH); // Clean up old socket
+    debug!("Time taken: {:?}", start.elapsed());
+    let _ = fs::remove_file(&config.general.socket_path); // Clean up old socket
 
     let timer_listener = Timer::default();
-    let listener = UnixListener::bind(SOCKET_PATH).expect("Failed to bind socket");
+    let listener = UnixListener::bind(&config.general.socket_path).expect("Failed to bind socket");
     listener
         .set_nonblocking(true)
         .expect("Failed to set non-blocking");

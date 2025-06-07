@@ -7,7 +7,7 @@ export struct AppItem {
     icon: image,
 }
 
-export struct Theme {
+export struct ThemeSlint {
     window-background: color,
     selected-item-background: color,
     selected-text-color: color,
@@ -34,7 +34,7 @@ export global Palette {
 }
 
 export component AppWindow inherits Window {
-    in property <Theme> theme: {
+    in property <ThemeSlint> theme: {
         window-background: rgb(24, 24, 37, 0.8),
         selected-item-background: rgb(203, 166, 247, 1),
         selected-text-color: rgb(24, 24, 37, 1),
