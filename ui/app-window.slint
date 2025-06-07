@@ -1,4 +1,5 @@
-import { ListView, VerticalBox, LineEdit } from "std-widgets.slint";
+import { ListView, VerticalBox} from "std-widgets.slint";
+import { LineEditBase} from "lineedit.slint";
 
 export struct AppItem {
     app_name: string,
@@ -16,12 +17,14 @@ export struct Theme {
     item-border-radius: length,
     icon-size: length,
     input-font-size: length,
+    input-border-width: length,
     text-font-size: length,
     comment-font-size: length,
     font-family: string,
     font-weight: int,
     window-width: length,
     window-height: length,
+    window-border-width: length,
     input-height: length,
 }
 
@@ -32,7 +35,7 @@ export global Palette {
 
 export component AppWindow inherits Window {
     in property <Theme> theme: {
-        window-background: rgb(30, 30, 46, 0.6),
+        window-background: rgb(24, 24, 37, 0.8),
         selected-item-background: rgb(203, 166, 247, 1),
         selected-text-color: rgb(24, 24, 37, 1),
         unselected-text-color: rgb(205, 214, 244,1),
@@ -46,8 +49,10 @@ export component AppWindow inherits Window {
         font-weight: 650,
         window-width: 400px,
         window-height: 580px,
+        window-border-width: 2px,
         item-border-radius: 10px,
-        input-height: 70px
+        input-height: 70px,
+        input-border-width: 3px
     };
     width: self.theme.window-width;
     height: self.theme.window-height;
@@ -80,6 +85,30 @@ export component AppWindow inherits Window {
         list.viewport_y = scroll_y;
     }
 
+    Rectangle {
+        border-width: root.theme.window-border-width;
+        clip: false;
+        background: root.theme.window-background;
+        border-color: root.theme.selected-item-background;
+        border-radius: root.theme.item-border-radius;
+        height: root.theme.window-height - root.theme.input-height;
+        width: root.theme.window-width * 0.96;
+        y: root.theme.input-height;
+        x: root.theme.window-width * 0.02;
+    }
+
+    Rectangle {
+        border-width: root.theme.input-border-width;
+        clip: false;
+        background: root.theme.window-background;
+        border-color: root.theme.selected-item-background;
+        border-radius: root.theme.item-border-radius;
+        width: root.theme.window-width * 0.96;
+        x: root.theme.window-width * 0.02;
+        y: root.theme.window-width * 0.02;
+        height: root.theme.input-height * 0.80;
+    }
+
     forward-focus: focus_handler;
     focus_handler := FocusScope {
         focus-changed-event() => {
@@ -95,11 +124,15 @@ export component AppWindow inherits Window {
             accept
         }
 
-        input := LineEdit {
+        input := LineEditBase {
             text <=> root.text_input;
+            font: root.theme.font-family;
+            text-color: root.theme.unselected-text-color;
+            margin: 10px;
             horizontal-alignment: left;
-            width: root.theme.window-width * 0.96;
-            x: root.theme.window-width * 0.02;
+            width: root.theme.window-width * 0.96 - 16px;
+            placeholder-text: "...";
+            x: root.theme.window-width * 0.02 + 16px;
             y: root.theme.window-width * 0.02;
             height: root.theme.input-height * 0.80;
 
@@ -138,24 +171,30 @@ export component AppWindow inherits Window {
         }
 
         VerticalLayout {
+            x: 0;
+            width: root.theme.window-width;
             Rectangle {
-                height: root.theme.input-height * 1.06;
+                height: root.theme.input-height * 1.09;
             }
 
             list := ListView {
+                width: parent.width * 0.92;
+                x: ((parent.width - self.width) / 2);
                 for data[idx] in root.appItems: VerticalLayout {
                     height: root.theme.item-height;
                     width: parent.width;
                     spacing: root.theme.item-spacing;
+                    padding-top: 0px;
                     touch := TouchArea {
 
                         Rectangle {
+                            clip: false;
                             height: root.theme.item-height - 4px;
                             border-radius: root.theme.item-border-radius;
                             background: touch.has-hover || idx == selected_index ? root.theme.selected-item-background : rgb(0,0,0,0);
-                            animate background { duration: 150ms; }
-                            x: 5px;
-                            width: parent.width - 40px;
+                            animate background { duration: 100ms; }
+                            x: 0px;
+                            width: parent.width;
                         }
 
                         Text {
@@ -171,7 +210,7 @@ export component AppWindow inherits Window {
                             wrap: word-wrap;
                             text: data.comment;
                             color: touch.has-hover || idx == selected_index ? root.theme.selected-text-color : root.theme.unselected-text-color;
-                            animate color { duration: 150ms; }
+                            animate color { duration: 100ms; }
                         }
 
                         Text {
@@ -186,7 +225,7 @@ export component AppWindow inherits Window {
                             vertical-alignment: top;
                             text: data.app_name;
                             color: touch.has-hover || idx == selected_index ? root.theme.selected-text-color : root.theme.unselected-text-color;
-                            animate color { duration: 150ms; }
+                            animate color { duration: 100ms; }
                         }
 
                         Image {
@@ -204,16 +243,7 @@ export component AppWindow inherits Window {
                 }
             }
         }
-
-        Rectangle {
-            border-width: 100px;
-            border-color: root.theme.selected-item-background;
-            border-radius: root.theme.item-border-radius;
-            height: root.theme.input-height - root.theme.input-height * 1.06;
-            y: 70px;
-            x: 0px;
-        }
     }
 
-    background: self.theme.window-background;
+    background: rgb(0, 0, 0, 0);
 }
