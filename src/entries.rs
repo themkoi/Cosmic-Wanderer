@@ -2,6 +2,7 @@ use freedesktop_desktop_entry::{DesktopEntry, Iter, default_paths, get_languages
 use freedesktop_icons::lookup;
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
+use log::debug;
 use std::cmp::Ordering;
 
 #[derive(Clone)]
@@ -119,7 +120,7 @@ impl DesktopEntryManager {
 
             if replace == true {
                 if let Some(index) = index_opt {
-                    println!("replacing");
+                    debug!("replacing");
                     entries[index] = nde;
                 }
             } else {

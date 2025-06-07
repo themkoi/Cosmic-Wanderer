@@ -1,3 +1,5 @@
+use log::{debug, error};
+use notify_rust::Notification;
 use shlex::Shlex;
 use slint::{Image, ModelRc, SharedString, Timer, TimerMode, set_xdg_app_id};
 use std::{
@@ -38,14 +40,32 @@ fn create_slint_items(normalized_entries: &[NormalDesktopEntry]) -> slint::VecMo
     slint::VecModel::from(
         normalized_entries
             .iter()
-            .map(|entry| AppItem {
-                app_name: entry.app_name.clone().into(),
-                comment: entry.comment.clone().into(),
-                icon: Image::load_from_path(entry.icon.as_ref())
-                    .unwrap_or_else(|_| Image::default()),
+            .map(|entry| {
+                let icon = match Image::load_from_path(entry.icon.as_ref()) {
+                    Ok(img) => img,
+                    Err(e) => {
+                        debug!("Failed to load icon '{}': {}", entry.icon, e);
+                        Image::default()
+                    }
+                };
+                AppItem {
+                    app_name: entry.app_name.clone().into(),
+                    comment: entry.comment.clone().into(),
+                    icon,
+                }
             })
             .collect::<Vec<_>>(),
     )
+}
+
+pub fn send_notification(message: &str) {
+    if let Err(e) = Notification::new()
+        .summary("Cosmic wanderer")
+        .body(message)
+        .show()
+    {
+        error!("Failed to show notification: {}", e);
+    }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -147,7 +167,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                 });
             }
 
-            command.spawn().expect("Failed to spawn detached process");
+            if let Err(e) = command.spawn() {
+                let msg = format!("Failed to spawn detached process: {}", e);
+                error!("{}", msg);
+                send_notification(&msg);
+            }
         }
 
         if let Some(ui) = ui_weak_clone_item.upgrade() {
