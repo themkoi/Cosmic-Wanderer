@@ -202,7 +202,7 @@ export component AppWindow inherits Window {
                             overflow: elide;
                             font-family: root.theme.font-family;
                             font-size: root.theme.comment-font-size;
-                            x: root.theme.icon-size + 25px;
+                            x: root.theme.window-width * 0.1825;
                             y: root.theme.item-height * 0.40;
                             height: root.theme.item-height * 0.55;
                             width: root.theme.window-width - (root.theme.icon-size + 25px) - 40px;
@@ -218,7 +218,7 @@ export component AppWindow inherits Window {
                             overflow: elide;
                             font-family: root.theme.font-family;
                             font-size: root.theme.text-font-size;
-                            x: root.theme.icon-size + 25px;
+                            x: root.theme.window-width * 0.1825;
                             y: data.comment == "" ? root.theme.item-height * 0.3 : root.theme.item-height * 0.12;
                             height: root.theme.text-font-size + 5px;
                             width: root.theme.window-width - (root.theme.icon-size + 25px) - 40px;
