@@ -10,6 +10,7 @@ use std::{
     process::{Command, Stdio},
     rc::Rc,
     sync::{LazyLock, Mutex},
+    thread,
     time::Instant,
 };
 mod entries;
@@ -20,8 +21,7 @@ mod history;
 use crate::history::*;
 
 mod config;
-use config::{load_or_create_config,config_color_to_slint};
-
+use config::{config_color_to_slint, load_or_create_config};
 
 slint::include_modules!();
 
@@ -80,10 +80,9 @@ fn theme_from_config(theme: &config::ThemeConfig) -> ThemeSlint {
         window_height: theme.window_height as f32,
         window_border_width: theme.window_border_width as f32,
         input_height: theme.input_height as f32,
-        animation_time: theme.animation_duration as i64
+        animation_time: theme.animation_duration as i64,
     }
 }
-
 
 pub fn send_notification(message: &str) {
     if let Err(e) = Notification::new()
@@ -107,7 +106,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let loaded = load_history();
     *get_history().try_lock().unwrap() = loaded;
 
-    let normalized_entries: Vec<NormalDesktopEntry> = manager.get_normalized_entries(config.general.icon_theme);
+    let normalized_entries: Vec<NormalDesktopEntry> =
+        manager.get_normalized_entries(config.general.icon_theme);
     let cloned_iter: std::iter::Cloned<std::slice::Iter<'_, NormalDesktopEntry>> =
         normalized_entries.iter().cloned();
     let search_entries: Vec<NormalDesktopEntry> = cloned_iter.collect();
@@ -132,10 +132,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     ui.set_appItems(ModelRc::new(Rc::new(slint_items)));
 
     let ui_weak_focus = ui.as_weak();
-    let timer_focus = slint::Timer::default();
+    let timer_focus = Timer::default();
     timer_focus.start(
-        slint::TimerMode::Repeated,
-        std::time::Duration::from_millis(200),
+        TimerMode::Repeated,
+        std::time::Duration::from_millis(500),
         move || {
             if let Some(ui) = ui_weak_focus.upgrade() {
                 if !ui.get_scopeFocused() {
@@ -198,6 +198,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 });
             }
 
+            debug!("launched command: {:?}", command);
+
             if let Err(e) = command.spawn() {
                 let msg = format!("Failed to spawn detached process: {}", e);
                 error!("{}", msg);
@@ -223,18 +225,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     debug!("Time taken: {:?}", start.elapsed());
     let _ = fs::remove_file(&config.general.socket_path); // Clean up old socket
 
-    let timer_listener = Timer::default();
     let listener = UnixListener::bind(&config.general.socket_path).expect("Failed to bind socket");
-    listener
-        .set_nonblocking(true)
-        .expect("Failed to set non-blocking");
+    let ui_weak_clone = ui_weak.clone();
 
-    timer_listener.start(
-        TimerMode::Repeated,
-        std::time::Duration::from_millis(70),
-        move || {
-            while let Ok((_stream, _addr)) = listener.accept() {
-                if let Some(ui) = ui_weak.clone().upgrade() {
+    thread::spawn(move || {
+        while let Ok((_stream, _addr)) = listener.accept() {
+            let ui_for_closure = ui_weak_clone.clone(); // Clone it for the closure
+
+            slint::invoke_from_event_loop(move || {
+                if let Some(ui) = ui_for_closure.upgrade() {
                     ui.set_text_input(SharedString::from(""));
                     ui.invoke_text_entered(SharedString::from(""));
                     ui.invoke_focusText();
@@ -242,9 +241,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                     ui.invoke_set_scroll(0.0);
                     ui.show().unwrap();
                 }
-            }
-        },
-    );
+            })
+            .unwrap();
+        }
+    });
 
     slint::run_event_loop_until_quit().unwrap();
     Ok(())
