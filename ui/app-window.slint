@@ -26,8 +26,7 @@ export struct ThemeSlint {
     window-height: length,
     window-border-width: length,
     input-height: length,
-    animation-time: duration
-}
+    animation-time: duration}
 
 export global Palette {
     in property <color> foreground-color;
@@ -76,9 +75,10 @@ export component AppWindow inherits Window {
     public function focusMain() {
         focus_handler.focus();
     }
-    public function readFocus() {
+    public function readFocus() -> bool {
         root.focused = TextInputInterface.text-input-focused;
         root.focus_changed(root.focused);
+        return root.focused;
     }
     public function select_item(index: int) {
         root.selected_index = index;
@@ -181,6 +181,7 @@ export component AppWindow inherits Window {
 
             list := ListView {
                 width: parent.width * 0.92;
+                height: root.theme.window-height - root.theme.input-height * 1.18;
                 x: ((parent.width - self.width) / 2);
                 for data[idx] in root.appItems: VerticalLayout {
                     height: root.theme.item-height;

@@ -1,7 +1,7 @@
 use log::{debug, error};
 use notify_rust::Notification;
 use shlex::Shlex;
-use slint::{Image, ModelRc, SharedString, Timer, TimerMode, set_xdg_app_id};
+use slint::{Image, ModelRc, SharedString, set_xdg_app_id};
 use std::{
     collections::HashMap,
     error::Error,
@@ -9,8 +9,8 @@ use std::{
     os::unix::{net::UnixListener, process::CommandExt},
     process::{Command, Stdio},
     rc::Rc,
-    sync::{LazyLock, Mutex},
-    thread,
+    sync::{Arc, LazyLock, Mutex},
+    thread::{self},
     time::Instant,
 };
 mod entries;
@@ -130,21 +130,36 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     ui.set_appItems(ModelRc::new(Rc::new(slint_items)));
-
+    let park = Arc::new(Mutex::new(true));
     let ui_weak_focus = ui.as_weak();
-    let timer_focus = Timer::default();
-    timer_focus.start(
-        TimerMode::Repeated,
-        std::time::Duration::from_millis(500),
-        move || {
-            if let Some(ui) = ui_weak_focus.upgrade() {
-                if !ui.get_scopeFocused() {
-                    ui.invoke_readFocus();
-                }
-            }
-        },
-    );
+    let park_thread = park.clone();
 
+    let parked_thread = thread::spawn(move || {
+        loop {
+            let ui_for_closure = ui_weak_focus.clone();
+            let park_inner = park_thread.clone();
+
+            slint::invoke_from_event_loop(move || {
+                if let Some(ui) = ui_for_closure.upgrade() {
+                    if !ui.get_scopeFocused() {
+                        if !ui.invoke_readFocus() {
+                            let mut p = park_inner.lock().unwrap();
+                            *p = true;
+                        }
+                    }
+                }
+            })
+            .unwrap();
+
+
+            if *park_thread.lock().unwrap() {
+                debug!("Parking thread.");
+                thread::park();
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    });
     let ui_weak_clone_text = ui.as_weak();
     ui.on_text_entered(move |text| {
         if !text.is_empty() {
@@ -164,6 +179,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
 
     let ui_weak_clone_item = ui.as_weak();
+    let park_clicked = park.clone();
     ui.on_item_clicked(move |idx| {
         let idx = idx as usize;
         let entries = get_entries().try_lock().unwrap();
@@ -206,17 +222,23 @@ fn main() -> Result<(), Box<dyn Error>> {
                 send_notification(&msg);
             }
         }
-
+        let park_inner = park_clicked.clone();
         if let Some(ui) = ui_weak_clone_item.upgrade() {
             ui.hide().unwrap();
+            let mut p = park_inner.lock().unwrap();
+            *p = true;
         }
     });
 
+    let park_focus = park.clone();
     let ui_weak_focus = ui_weak.clone();
     ui.on_focus_changed(move |focused| {
+        let park_inner: Arc<Mutex<bool>> = park_focus.clone();
         if !focused {
             if let Some(ui) = ui_weak_focus.upgrade() {
                 ui.hide().unwrap();
+                let mut p = park_inner.lock().unwrap();
+                *p = true;
             }
         }
     });
@@ -227,11 +249,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let listener = UnixListener::bind(&config.general.socket_path).expect("Failed to bind socket");
     let ui_weak_clone = ui_weak.clone();
-
+    let park_listener = park.clone();
     thread::spawn(move || {
         while let Ok((_stream, _addr)) = listener.accept() {
             let ui_for_closure = ui_weak_clone.clone(); // Clone it for the closure
-
+            let park_inner: Arc<Mutex<bool>> = park_listener.clone();
             slint::invoke_from_event_loop(move || {
                 if let Some(ui) = ui_for_closure.upgrade() {
                     ui.set_text_input(SharedString::from(""));
@@ -243,6 +265,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
             })
             .unwrap();
+            let mut p = park_inner.lock().unwrap();
+            *p = false;
+            parked_thread.thread().unpark();
         }
     });
 
