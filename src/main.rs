@@ -9,7 +9,7 @@ use std::{
     os::unix::{net::UnixListener, process::CommandExt},
     process::{Command, Stdio},
     rc::Rc,
-    sync::{Arc, LazyLock, Mutex},
+    sync::{Arc, Condvar, LazyLock, Mutex},
     thread::{self},
     time::Instant,
 };
@@ -134,7 +134,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let ui_weak_focus = ui.as_weak();
     let park_thread = park.clone();
 
-    let parked_thread = thread::spawn(move || {
+    let pair = Arc::new((Mutex::new(false), Condvar::new()));
+    let pair_clone = pair.clone();
+
+    let focus_thread = thread::spawn(move || {
         loop {
             let ui_for_closure = ui_weak_focus.clone();
             let park_inner = park_thread.clone();
@@ -151,10 +154,18 @@ fn main() -> Result<(), Box<dyn Error>> {
             })
             .unwrap();
 
-
             if *park_thread.lock().unwrap() {
+                let (lock, cvar) = &*pair_clone;
+                *lock.lock().unwrap() = false;
+                cvar.notify_one();
                 debug!("Parking thread.");
                 thread::park();
+                debug!("Thread unparked");
+                *park_thread.lock().unwrap() = false;
+                let (lock, cvar) = &*pair_clone;
+                *lock.lock().unwrap() = true;
+                cvar.notify_one();
+                debug!("notified");
             }
 
             std::thread::sleep(std::time::Duration::from_millis(100));
@@ -162,6 +173,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
     let ui_weak_clone_text = ui.as_weak();
     ui.on_text_entered(move |text| {
+        debug!("entered text");
         if !text.is_empty() {
             let sorted_entries =
                 DesktopEntryManager::filter_and_sort_entries(&text, &normalized_entries);
@@ -243,17 +255,35 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
+    let pair_for_timer = pair.clone();
+
+    let timer = slint::Timer::default();
+    timer.start(
+        slint::TimerMode::Repeated,
+        std::time::Duration::from_secs(1),
+        move || {
+            let (lock, cvar) = &*pair_for_timer;
+            let mut ready = lock.try_lock().unwrap();
+            while !*ready {
+                debug!("blocking Ui");
+                ready = cvar.wait(ready).unwrap();
+                debug!("waking Ui");
+                *ready = true;
+            }
+        },
+    );
+
     ui.invoke_focusText();
     debug!("Time taken: {:?}", start.elapsed());
     let _ = fs::remove_file(&config.general.socket_path); // Clean up old socket
 
     let listener = UnixListener::bind(&config.general.socket_path).expect("Failed to bind socket");
     let ui_weak_clone = ui_weak.clone();
-    let park_listener = park.clone();
     thread::spawn(move || {
         while let Ok((_stream, _addr)) = listener.accept() {
+            focus_thread.thread().unpark();
+
             let ui_for_closure = ui_weak_clone.clone(); // Clone it for the closure
-            let park_inner: Arc<Mutex<bool>> = park_listener.clone();
             slint::invoke_from_event_loop(move || {
                 if let Some(ui) = ui_for_closure.upgrade() {
                     ui.set_text_input(SharedString::from(""));
@@ -265,9 +295,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
             })
             .unwrap();
-            let mut p = park_inner.lock().unwrap();
-            *p = false;
-            parked_thread.thread().unpark();
         }
     });
 
