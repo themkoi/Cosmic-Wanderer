@@ -227,6 +227,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
 
             debug!("launched command: {:?}", command);
+            debug!("With envs: {:#?}", std::env::vars());
+            command.envs(std::env::vars());
 
             if let Err(e) = command.spawn() {
                 let msg = format!("Failed to spawn detached process: {}", e);
