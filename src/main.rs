@@ -168,7 +168,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 debug!("notified");
             }
 
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            std::thread::sleep(std::time::Duration::from_millis(200));
         }
     });
     let ui_weak_clone_text = ui.as_weak();
@@ -186,6 +186,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         if let Some(ui) = ui_weak_clone_text.upgrade() {
             let model = create_slint_items(&get_entries().try_lock().unwrap());
+            ui.set_selected_index(0);
+            ui.invoke_set_scroll(0.0);
             ui.set_appItems(ModelRc::new(Rc::new(model)));
         }
     });
