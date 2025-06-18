@@ -38,11 +38,11 @@ pub fn increment_usage(history: &mut HistoryMap, appid: &str) {
     entry.usage_count += 1;
 }
 
-pub fn sorted_entries_by_usage<'a>(
-    entries: &'a [NormalDesktopEntry],
+pub fn sorted_entries_by_usage(
+    entries: &[NormalDesktopEntry],
     usage: &HistoryMap,
-) -> Vec<&'a NormalDesktopEntry> {
-    let mut sorted: Vec<_> = entries.iter().collect();
+) -> Vec<NormalDesktopEntry> {
+    let mut sorted: Vec<_> = entries.to_vec(); // clones entries
     sorted.sort_by(|a, b| {
         let a_count = usage.get(&a.appid).map(|h| h.usage_count).unwrap_or(0);
         let b_count = usage.get(&b.appid).map(|h| h.usage_count).unwrap_or(0);

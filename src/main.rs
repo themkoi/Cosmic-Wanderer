@@ -1,7 +1,7 @@
 use log::{debug, error};
 use notify_rust::Notification;
 use shlex::Shlex;
-use slint::{Image, ModelRc, SharedString, set_xdg_app_id};
+use slint::{Image, Model, ModelRc, SharedString, VecModel, set_xdg_app_id};
 use std::{
     collections::HashMap,
     error::Error,
@@ -25,39 +25,25 @@ use config::{config_color_to_slint, load_or_create_config};
 
 slint::include_modules!();
 
-// Global storage for desktop entries
-static ENTRIES: Mutex<Vec<NormalDesktopEntry>> = Mutex::new(Vec::new());
-
-fn get_entries() -> &'static Mutex<Vec<NormalDesktopEntry>> {
-    &ENTRIES
-}
-
 static GLOBAL_HISTORY: LazyLock<Mutex<HistoryMap>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn get_history() -> &'static Mutex<HistoryMap> {
     &GLOBAL_HISTORY
 }
 
-fn create_slint_items(normalized_entries: &[NormalDesktopEntry]) -> slint::VecModel<AppItem> {
-    slint::VecModel::from(
-        normalized_entries
-            .iter()
-            .map(|entry| {
-                let icon = match Image::load_from_path(entry.icon.as_ref()) {
-                    Ok(img) => img,
-                    Err(e) => {
-                        debug!("Failed to load icon '{}': {}", entry.icon, e);
-                        Image::default()
-                    }
-                };
-                AppItem {
-                    app_name: entry.app_name.clone().into(),
-                    comment: entry.comment.clone().into(),
-                    icon,
-                }
-            })
-            .collect::<Vec<_>>(),
-    )
+fn create_slint_items(normalized_entries: &[NormalDesktopEntry]) -> VecModel<AppItem> {
+    let model = VecModel::default();
+    for entry in normalized_entries {
+        let icon = Image::load_from_path(entry.icon.as_ref()).unwrap_or_default();
+        model.push(AppItem {
+            app_name: entry.app_name.clone().into(),
+            app_id: entry.appid.clone().into(),
+            exec: entry.exec.clone().into(),
+            comment: entry.comment.clone().into(),
+            icon,
+        });
+    }
+    model
 }
 
 fn theme_from_config(theme: &config::ThemeConfig) -> ThemeSlint {
@@ -112,11 +98,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         normalized_entries.iter().cloned();
     let search_entries: Vec<NormalDesktopEntry> = cloned_iter.collect();
 
-    {
-        let entries = search_entries;
-        *get_entries().try_lock().unwrap() = entries;
-    }
-
     let _ = set_xdg_app_id("cosmic-wanderer");
     let ui = AppWindow::new()?;
     let ui_weak = ui.as_weak();
@@ -124,11 +105,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let theme = theme_from_config(&config.theme);
     ui.set_theme(theme);
 
-    let slint_items = {
-        let entries = get_entries().try_lock().unwrap();
-        create_slint_items(&entries)
-    };
-
+    let slint_items = create_slint_items(&search_entries);
     ui.set_appItems(ModelRc::new(Rc::new(slint_items)));
     let park = Arc::new(Mutex::new(true));
     let ui_weak_focus = ui.as_weak();
@@ -156,6 +133,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             if *park_thread.lock().unwrap() {
                 let (lock, cvar) = &*pair_clone;
+                let ui_for_closure = ui_weak_focus.clone();
+                slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = ui_for_closure.upgrade() {
+                        ui.invoke_text_entered(SharedString::from("nothing"));
+                    }
+                })
+                .unwrap();
                 *lock.lock().unwrap() = false;
                 cvar.notify_one();
                 debug!("Parking thread.");
@@ -168,81 +152,82 @@ fn main() -> Result<(), Box<dyn Error>> {
                 debug!("notified");
             }
 
-            std::thread::sleep(std::time::Duration::from_millis(200));
+            std::thread::sleep(std::time::Duration::from_millis(50));
         }
     });
     let ui_weak_clone_text = ui.as_weak();
     ui.on_text_entered(move |text| {
-        debug!("entered text");
-        if !text.is_empty() {
-            let sorted_entries =
-                DesktopEntryManager::filter_and_sort_entries(&text, &normalized_entries);
-            *get_entries().try_lock().unwrap() = sorted_entries;
+        let sorted_entries = if !text.is_empty() {
+            DesktopEntryManager::filter_and_sort_entries(&text, &normalized_entries)
         } else {
             let history = get_history().try_lock().unwrap();
-            let sorted_entries = sorted_entries_by_usage(&normalized_entries, &history);
-            *get_entries().try_lock().unwrap() = sorted_entries.iter().cloned().cloned().collect();
-        }
+            sorted_entries_by_usage(&normalized_entries, &history)
+        };
 
-        if let Some(ui) = ui_weak_clone_text.upgrade() {
-            let model = create_slint_items(&get_entries().try_lock().unwrap());
-            ui.set_selected_index(0);
-            ui.invoke_set_scroll(0.0);
-            ui.set_appItems(ModelRc::new(Rc::new(model)));
-        }
+        let vec_model = create_slint_items(&sorted_entries); // Convert to VecModel<AppItem>
+
+        if let Some(ui) = ui_weak_clone_text.upgrade(){
+        ui.set_appItems(ModelRc::new(Rc::new(vec_model)));
+
+        ui.set_selected_index(0);
+        ui.invoke_set_scroll(0.0);}
     });
 
     let ui_weak_clone_item = ui.as_weak();
     let park_clicked = park.clone();
     ui.on_item_clicked(move |idx| {
         let idx = idx as usize;
-        let entries = get_entries().try_lock().unwrap();
-        let entry = &entries[idx];
 
-        let mut history = get_history().try_lock().unwrap();
-
-        increment_usage(&mut *history, &entry.appid);
-        save_history(&history);
-
-        let command_string = entry
-            .exec
-            .replace("%U", "")
-            .replace("%F", "")
-            .replace("%u", "")
-            .replace("%f", "");
-
-        let command: Vec<String> = Shlex::new(&command_string).collect();
-
-        if let Some((cmd, args)) = command.split_first() {
-            let mut command = Command::new(cmd);
-            command
-                .args(args)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
-
-            unsafe {
-                command.pre_exec(|| {
-                    libc::setsid();
-                    Ok(())
-                });
-            }
-
-            debug!("launched command: {:?}", command);
-            debug!("With envs: {:#?}", std::env::vars());
-            command.envs(std::env::vars());
-
-            if let Err(e) = command.spawn() {
-                let msg = format!("Failed to spawn detached process: {}", e);
-                error!("{}", msg);
-                send_notification(&msg);
-            }
-        }
-        let park_inner = park_clicked.clone();
         if let Some(ui) = ui_weak_clone_item.upgrade() {
-            ui.hide().unwrap();
-            let mut p = park_inner.lock().unwrap();
-            *p = true;
+            let entries = ui.get_appItems();
+            if let Some(entry) = entries.row_data(idx) {
+                let mut history = get_history().try_lock().unwrap();
+
+                increment_usage(&mut *history, &entry.app_id);
+                save_history(&history);
+
+                let command_string = entry
+                    .exec
+                    .replace("%U", "")
+                    .replace("%F", "")
+                    .replace("%u", "")
+                    .replace("%f", "");
+
+                let command: Vec<String> = Shlex::new(&command_string).collect();
+
+                if let Some((cmd, args)) = command.split_first() {
+                    let mut command = Command::new(cmd);
+                    command
+                        .args(args)
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null());
+
+                    unsafe {
+                        command.pre_exec(|| {
+                            libc::setsid();
+                            Ok(())
+                        });
+                    }
+
+                    debug!("launched command: {:?}", command);
+                    debug!("With envs: {:#?}", std::env::vars());
+                    command.envs(std::env::vars());
+
+                    if let Err(e) = command.spawn() {
+                        let msg = format!("Failed to spawn detached process: {}", e);
+                        error!("{}", msg);
+                        send_notification(&msg);
+                    }
+                }
+
+                let park_inner = park_clicked.clone();
+                if let Some(ui) = ui_weak_clone_item.upgrade() {
+                    ui.hide().unwrap();
+                    let mut p = park_inner.lock().unwrap();
+                    *p = true;
+                }
+            }
         }
     });
 
@@ -281,6 +266,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     debug!("Time taken: {:?}", start.elapsed());
     let _ = fs::remove_file(&config.general.socket_path); // Clean up old socket
 
+    let park_listener = park.clone();
     let listener = UnixListener::bind(&config.general.socket_path).expect("Failed to bind socket");
     let ui_weak_clone = ui_weak.clone();
     thread::spawn(move || {
@@ -288,6 +274,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             focus_thread.thread().unpark();
 
             let ui_for_closure = ui_weak_clone.clone(); // Clone it for the closure
+            let mut p = park_listener.lock().unwrap();
+            *p = false;
             slint::invoke_from_event_loop(move || {
                 if let Some(ui) = ui_for_closure.upgrade() {
                     ui.set_text_input(SharedString::from(""));
@@ -302,6 +290,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    slint::run_event_loop_until_quit().unwrap();
+    slint::run_event_loop_until_quit();
     Ok(())
 }

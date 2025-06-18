@@ -10,7 +10,6 @@ pub struct NormalDesktopEntry {
     pub app_name: String,
     pub comment: String,
     pub appid: String,
-    pub categories: Option<Vec<String>>,
     pub exec: String,
     pub icon: String,
 }
@@ -102,9 +101,6 @@ impl DesktopEntryManager {
             let app_name = entry.name(&self.locales).unwrap_or_default().to_string();
             let exec = entry.exec().unwrap_or_default().to_string();
             let icon = icon_path;
-            let categories = entry
-                .categories()
-                .map(|v| v.iter().map(|s| s.to_string()).collect::<Vec<String>>());
             let comment = entry.comment(&self.locales).unwrap_or_default().to_string();
             let appid= entry.appid.clone();
 
@@ -113,7 +109,6 @@ impl DesktopEntryManager {
                 app_name,
                 exec,
                 icon,
-                categories,
                 comment,
                 appid,
             };

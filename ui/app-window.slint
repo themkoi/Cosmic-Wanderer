@@ -1,8 +1,10 @@
 import { ListView, VerticalBox} from "std-widgets.slint";
-import { LineEditBase} from "lineedit.slint";
+import { LineEditBase} from "line-edit.slint";
 
 export struct AppItem {
     app_name: string,
+    app_id: string,
+    exec: string,
     comment: string,
     icon: image,
 }
@@ -133,7 +135,6 @@ export component AppWindow inherits Window {
             margin: 10px;
             horizontal-alignment: left;
             width: root.theme.window-width * 0.96 - 16px;
-            placeholder-text: "...";
             x: root.theme.window-width * 0.02 + 16px;
             y: root.theme.window-width * 0.02;
             height: root.theme.input-height * 0.80;
