@@ -3,13 +3,12 @@ use notify_rust::Notification;
 use shlex::Shlex;
 use slint::{Image, Model, ModelRc, SharedString, VecModel, set_xdg_app_id};
 use std::{
-    collections::HashMap,
     error::Error,
     fs,
     os::unix::{net::UnixListener, process::CommandExt},
     process::{Command, Stdio},
     rc::Rc,
-    sync::{Arc, Condvar, LazyLock, Mutex},
+    sync::{Arc, Condvar, Mutex},
     thread::{self},
     time::Instant,
 };
@@ -24,12 +23,6 @@ mod config;
 use config::{config_color_to_slint, load_or_create_config};
 
 slint::include_modules!();
-
-static GLOBAL_HISTORY: LazyLock<Mutex<HistoryMap>> = LazyLock::new(|| Mutex::new(HashMap::new()));
-
-fn get_history() -> &'static Mutex<HistoryMap> {
-    &GLOBAL_HISTORY
-}
 
 fn create_slint_items(normalized_entries: &[NormalDesktopEntry]) -> VecModel<AppItem> {
     let model = VecModel::default();
@@ -89,14 +82,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let start = Instant::now();
     let manager = DesktopEntryManager::new();
 
-    let loaded = load_history();
-    *get_history().try_lock().unwrap() = loaded;
-
     let normalized_entries: Vec<NormalDesktopEntry> =
-        manager.get_normalized_entries(config.general.icon_theme);
-    let cloned_iter: std::iter::Cloned<std::slice::Iter<'_, NormalDesktopEntry>> =
-        normalized_entries.iter().cloned();
-    let search_entries: Vec<NormalDesktopEntry> = cloned_iter.collect();
+        manager.get_normalized_entries(config.general.icon_theme.clone());
 
     let _ = set_xdg_app_id("cosmic-wanderer");
     let ui = AppWindow::new()?;
@@ -105,7 +92,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let theme = theme_from_config(&config.theme);
     ui.set_theme(theme);
 
-    let slint_items = create_slint_items(&search_entries);
+    let slint_items = create_slint_items(&normalized_entries);
     ui.set_appItems(ModelRc::new(Rc::new(slint_items)));
     let park = Arc::new(Mutex::new(true));
     let ui_weak_focus = ui.as_weak();
@@ -160,7 +147,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let sorted_entries = if !text.is_empty() {
             DesktopEntryManager::filter_and_sort_entries(&text, &normalized_entries)
         } else {
-            let history = get_history().try_lock().unwrap();
+            let history = load_history();
             sorted_entries_by_usage(&normalized_entries, &history)
         };
 
@@ -171,6 +158,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         ui.set_selected_index(0);
         ui.invoke_set_scroll(0.0);}
+        drop(sorted_entries);
     });
 
     let ui_weak_clone_item = ui.as_weak();
@@ -181,10 +169,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         if let Some(ui) = ui_weak_clone_item.upgrade() {
             let entries = ui.get_appItems();
             if let Some(entry) = entries.row_data(idx) {
-                let mut history = get_history().try_lock().unwrap();
+                let mut history = load_history();
 
-                increment_usage(&mut *history, &entry.app_id);
+                increment_usage(&mut history, &entry.app_id);
                 save_history(&history);
+                drop(history);
 
                 let command_string = entry
                     .exec
@@ -220,7 +209,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         send_notification(&msg);
                     }
                 }
-
+                drop(entries);
                 let park_inner = park_clicked.clone();
                 if let Some(ui) = ui_weak_clone_item.upgrade() {
                     ui.hide().unwrap();
@@ -289,7 +278,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             .unwrap();
         }
     });
+    
+drop(config);
 
-    slint::run_event_loop_until_quit();
+    slint::run_event_loop_until_quit().unwrap();
     Ok(())
 }
