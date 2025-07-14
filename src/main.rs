@@ -153,11 +153,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         let vec_model = create_slint_items(&sorted_entries); // Convert to VecModel<AppItem>
 
-        if let Some(ui) = ui_weak_clone_text.upgrade(){
-        ui.set_appItems(ModelRc::new(Rc::new(vec_model)));
+        if let Some(ui) = ui_weak_clone_text.upgrade() {
+            ui.set_appItems(ModelRc::new(Rc::new(vec_model)));
 
-        ui.set_selected_index(0);
-        ui.invoke_set_scroll(0.0);}
+            ui.set_selected_index(0);
+            ui.invoke_set_scroll(0.0);
+        }
         drop(sorted_entries);
     });
 
@@ -278,8 +279,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             .unwrap();
         }
     });
-    
-drop(config);
+
+    drop(config);
 
     slint::run_event_loop_until_quit().unwrap();
     Ok(())

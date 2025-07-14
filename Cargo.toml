@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-slint = "=1.11.0"
+slint = "1.12.1"
 freedesktop-desktop-entry = "=0.7.11"
 shlex = "1.3.0"
 freedesktop-icons = "0.3.1"
@@ -20,11 +20,11 @@ notify-rust = "4"
 config = "0.15.11"
 
 [build-dependencies]
-slint-build = "=1.11.0"
+slint-build = "1.12.1"
 
 [profile.release]
 lto = "fat"
-opt-level = 3
+opt-level = "z"
 strip = true 
 codegen-units = 1
 debug = 0
