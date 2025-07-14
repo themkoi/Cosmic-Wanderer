@@ -40,7 +40,7 @@ impl DesktopEntryManager {
         }
     }
 
-    pub fn get_normalized_entries(&self,icon_theme: String) -> Vec<NormalDesktopEntry> {
+    pub fn get_normalized_entries(&self, icon_theme: String) -> Vec<NormalDesktopEntry> {
         let mut entries = Vec::new();
         let mut seen_names: std::collections::HashSet<String> = std::collections::HashSet::new();
 
@@ -63,9 +63,9 @@ impl DesktopEntryManager {
                 .iter()
                 .any(|n| normalize_name(n) == normalized_name)
             {
-                index_opt = entries
-                    .iter()
-                    .position(|e: &NormalDesktopEntry| normalize_name(&e.app_name) == normalized_name);
+                index_opt = entries.iter().position(|e: &NormalDesktopEntry| {
+                    normalize_name(&e.app_name) == normalized_name
+                });
 
                 if let Some(index) = index_opt {
                     if entries[index].icon.is_empty() {
@@ -102,7 +102,7 @@ impl DesktopEntryManager {
             let exec = entry.exec().unwrap_or_default().to_string();
             let icon = icon_path;
             let comment = entry.comment(&self.locales).unwrap_or_default().to_string();
-            let appid= entry.appid.clone();
+            let appid = entry.appid.clone();
 
             // Create the normalized entry
             let nde = NormalDesktopEntry {
@@ -132,19 +132,25 @@ impl DesktopEntryManager {
         normalized_entries: &[NormalDesktopEntry],
     ) -> Vec<NormalDesktopEntry> {
         let matcher = SkimMatcherV2::default();
-        let mut matched_entries: Vec<(i64, Vec<usize>, NormalDesktopEntry)> = normalized_entries
+
+        let mut matched_entries: Vec<(i64, NormalDesktopEntry)> = normalized_entries
             .iter()
             .filter_map(|entry| {
+                let search_string = format!(
+                    "{} {} {} {}",
+                    entry.app_name, entry.comment, entry.appid, entry.exec
+                );
+
                 matcher
-                    .fuzzy_indices(&entry.app_name, text)
-                    .map(|(score, indices)| (score, indices, entry.clone()))
+                    .fuzzy_match(&search_string, text)
+                    .map(|score| (score, entry.clone()))
             })
             .collect();
 
         matched_entries.sort_by(|a, b| {
             let score_cmp = b.0.cmp(&a.0);
             if score_cmp == Ordering::Equal {
-                a.2.app_name.len().cmp(&b.2.app_name.len())
+                a.1.app_name.len().cmp(&b.1.app_name.len())
             } else {
                 score_cmp
             }
@@ -152,7 +158,7 @@ impl DesktopEntryManager {
 
         matched_entries
             .into_iter()
-            .map(|(_, _, entry)| entry)
+            .map(|(_, entry)| entry)
             .collect()
     }
 }
