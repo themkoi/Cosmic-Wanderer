@@ -40,7 +40,15 @@ impl DesktopEntryManager {
         }
     }
 
-    pub fn get_normalized_entries(&self, icon_theme: String) -> Vec<NormalDesktopEntry> {
+    pub fn refresh(&mut self) {
+        self.locales = get_languages_from_env();
+        let paths = Iter::new(default_paths());
+        self.desktop_entries = paths
+            .filter_map(|path| DesktopEntry::from_path(path, Some(&self.locales)).ok())
+            .collect();
+    }
+
+    pub fn get_normalized_entries(&self, icon_theme: &str) -> Vec<NormalDesktopEntry> {
         let mut entries = Vec::new();
         let mut seen_names: std::collections::HashSet<String> = std::collections::HashSet::new();
 

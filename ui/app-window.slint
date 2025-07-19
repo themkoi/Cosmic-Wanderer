@@ -177,16 +177,16 @@ export component AppWindow inherits Window {
                 }
                 if (event.text == Key.PageDown) {
                     root.selected_index = Math.min(
-        Math.floor((-list.viewport_y + root.theme.window-height - root.theme.item-height) / root.theme.item-height),
+        root.selected_index + Math.max(1, Math.floor(root.theme.window_height / root.theme.item_height) - 2),
         root.appItems.length - 1);
-                    list.viewport_y = -root.selected_index * root.theme.item-height + root.theme.item-height;
+                    list.viewport_y = -root.selected_index * root.theme.item_height + root.theme.item_height;
                     accept
                 }
                 if (event.text == Key.PageUp) {
                     root.selected_index = Math.max(
-        Math.floor(-list.viewport_y / root.theme.item-height),
+        root.selected_index - Math.max(1, Math.floor(root.theme.window_height / root.theme.item_height) - 2),
         0);
-                    list.viewport_y = -root.selected_index * root.theme.item-height + root.theme.item-height;
+                    list.viewport_y = -root.selected_index * root.theme.item_height + root.theme.item_height;
                     accept
                 }
                 reject

@@ -17,6 +17,7 @@ serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 dirs = "5"
 notify-rust = "4"
+notify = "8.1.0"
 config = "0.15.11"
 
 [build-dependencies]

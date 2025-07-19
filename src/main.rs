@@ -1,4 +1,7 @@
+use freedesktop_desktop_entry::default_paths;
 use log::{debug, error};
+use notify::event::{CreateKind, EventKind, ModifyKind, RemoveKind};
+use notify::{RecursiveMode, Watcher, recommended_watcher};
 use notify_rust::Notification;
 use shlex::Shlex;
 use slint::{Image, Model, ModelRc, SharedString, VecModel, set_xdg_app_id};
@@ -8,7 +11,7 @@ use std::{
     os::unix::{net::UnixListener, process::CommandExt},
     process::{Command, Stdio},
     rc::Rc,
-    sync::{Arc, Condvar, Mutex},
+    sync::{Arc, Condvar, Mutex, mpsc::channel},
     thread::{self},
     time::Instant,
 };
@@ -80,10 +83,42 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
 
     let start = Instant::now();
-    let manager = DesktopEntryManager::new();
+    let mut manager = DesktopEntryManager::new();
 
-    let normalized_entries: Vec<NormalDesktopEntry> =
-        manager.get_normalized_entries(config.general.icon_theme.clone());
+    let normalized_entries = Arc::new(Mutex::new(
+        manager.get_normalized_entries(&config.general.icon_theme.clone()),
+    ));
+
+    // Setup watcher channel and watcher
+    let (tx, rx) = channel();
+
+    let mut watcher = recommended_watcher(tx)?;
+
+    for path in default_paths() {
+        if path.exists() {
+            watcher.watch(&path, RecursiveMode::Recursive)?;
+        }
+    }
+    let normalized_entries_watcher_cloned = normalized_entries.clone();
+    let icon_theme = config.general.icon_theme.clone();
+    thread::spawn(move || {
+        for res in rx {
+            match res {
+                Ok(event) => match &event.kind {
+                    EventKind::Modify(ModifyKind::Data(_))
+                    | EventKind::Create(CreateKind::Any)
+                    | EventKind::Remove(RemoveKind::Any) => {
+                        debug!("Entry changed");
+                        manager.refresh();
+                        let mut entries = normalized_entries_watcher_cloned.lock().unwrap();
+                        *entries = manager.get_normalized_entries(&icon_theme);
+                    }
+                    _ => {}
+                },
+                Err(e) => error!("Watch error: {:?}", e),
+            }
+        }
+    });
 
     let _ = set_xdg_app_id("cosmic-wanderer");
     let ui = AppWindow::new()?;
@@ -91,8 +126,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let theme = theme_from_config(&config.theme);
     ui.set_theme(theme);
-
-    let slint_items = create_slint_items(&normalized_entries);
+    let slint_items = {
+        let locked_entries = normalized_entries.lock().unwrap();
+        create_slint_items(&*locked_entries)
+    };
     ui.set_appItems(ModelRc::new(Rc::new(slint_items)));
     let park = Arc::new(Mutex::new(true));
     let ui_weak_focus = ui.as_weak();
@@ -143,12 +180,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     });
     let ui_weak_clone_text = ui.as_weak();
+    let normalized_entries_cloned = normalized_entries.clone();
     ui.on_text_entered(move |text| {
+        let locked_entries = normalized_entries_cloned.lock().unwrap();
         let sorted_entries = if !text.is_empty() {
-            DesktopEntryManager::filter_and_sort_entries(&text, &normalized_entries)
+            DesktopEntryManager::filter_and_sort_entries(&text, &locked_entries)
         } else {
             let history = load_history();
-            sorted_entries_by_usage(&normalized_entries, &history)
+            sorted_entries_by_usage(&locked_entries, &history)
         };
 
         let vec_model = create_slint_items(&sorted_entries); // Convert to VecModel<AppItem>
