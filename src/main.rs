@@ -3,6 +3,7 @@ use log::{debug, error};
 use notify::event::{CreateKind, EventKind, ModifyKind, RemoveKind};
 use notify::{RecursiveMode, Watcher, recommended_watcher};
 use notify_rust::Notification;
+use parking_lot::{Condvar, Mutex};
 use shlex::Shlex;
 use slint::{Image, Model, ModelRc, SharedString, VecModel, set_xdg_app_id};
 use std::{
@@ -11,7 +12,7 @@ use std::{
     os::unix::{net::UnixListener, process::CommandExt},
     process::{Command, Stdio},
     rc::Rc,
-    sync::{Arc, Condvar, Mutex, mpsc::channel},
+    sync::{Arc, mpsc::channel},
     thread::{self},
     time::Instant,
 };
@@ -86,10 +87,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut manager = DesktopEntryManager::new();
 
     let normalized_entries = Arc::new(Mutex::new(
-        manager.get_normalized_entries(&config.general.icon_theme.clone()),
+        manager.get_normalized_entries(&config.general.icon_theme.clone(),&config.theme.icon_size.clone()),
     ));
 
-    // Setup watcher channel and watcher
     let (tx, rx) = channel();
 
     let mut watcher = recommended_watcher(tx)?;
@@ -101,6 +101,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     let normalized_entries_watcher_cloned = normalized_entries.clone();
     let icon_theme = config.general.icon_theme.clone();
+    let icon_size = config.theme.icon_size.clone();
     thread::spawn(move || {
         for res in rx {
             match res {
@@ -110,8 +111,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                     | EventKind::Remove(RemoveKind::Any) => {
                         debug!("Entry changed");
                         manager.refresh();
-                        let mut entries = normalized_entries_watcher_cloned.lock().unwrap();
-                        *entries = manager.get_normalized_entries(&icon_theme);
+                        let mut entries = normalized_entries_watcher_cloned.lock();
+                        *entries = manager.get_normalized_entries(&icon_theme,&icon_size);
                     }
                     _ => {}
                 },
@@ -127,7 +128,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let theme = theme_from_config(&config.theme);
     ui.set_theme(theme);
     let slint_items = {
-        let locked_entries = normalized_entries.lock().unwrap();
+        let locked_entries = normalized_entries.lock();
         create_slint_items(&*locked_entries)
     };
     ui.set_appItems(ModelRc::new(Rc::new(slint_items)));
@@ -147,7 +148,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 if let Some(ui) = ui_for_closure.upgrade() {
                     if !ui.get_scopeFocused() {
                         if !ui.invoke_readFocus() {
-                            let mut p = park_inner.lock().unwrap();
+                            let mut p = park_inner.lock();
                             *p = true;
                         }
                     }
@@ -155,7 +156,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             })
             .unwrap();
 
-            if *park_thread.lock().unwrap() {
+            if *park_thread.lock() {
                 let (lock, cvar) = &*pair_clone;
                 let ui_for_closure = ui_weak_focus.clone();
                 slint::invoke_from_event_loop(move || {
@@ -164,14 +165,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
                 })
                 .unwrap();
-                *lock.lock().unwrap() = false;
+                *lock.lock() = false;
                 cvar.notify_one();
                 debug!("Parking thread.");
                 thread::park();
                 debug!("Thread unparked");
-                *park_thread.lock().unwrap() = false;
+                *park_thread.lock() = false;
                 let (lock, cvar) = &*pair_clone;
-                *lock.lock().unwrap() = true;
+                *lock.lock() = true;
                 cvar.notify_one();
                 debug!("notified");
             }
@@ -182,7 +183,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let ui_weak_clone_text = ui.as_weak();
     let normalized_entries_cloned = normalized_entries.clone();
     ui.on_text_entered(move |text| {
-        let locked_entries = normalized_entries_cloned.lock().unwrap();
+        let locked_entries = normalized_entries_cloned.lock();
         let sorted_entries = if !text.is_empty() {
             DesktopEntryManager::filter_and_sort_entries(&text, &locked_entries)
         } else {
@@ -190,7 +191,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             sorted_entries_by_usage(&locked_entries, &history)
         };
 
-        let vec_model = create_slint_items(&sorted_entries); // Convert to VecModel<AppItem>
+        let vec_model = create_slint_items(&sorted_entries);
 
         if let Some(ui) = ui_weak_clone_text.upgrade() {
             ui.set_appItems(ModelRc::new(Rc::new(vec_model)));
@@ -240,8 +241,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
 
                     debug!("launched command: {:?}", command);
-                    debug!("With envs: {:#?}", std::env::vars());
-                    command.envs(std::env::vars());
 
                     if let Err(e) = command.spawn() {
                         let msg = format!("Failed to spawn detached process: {}", e);
@@ -253,7 +252,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let park_inner = park_clicked.clone();
                 if let Some(ui) = ui_weak_clone_item.upgrade() {
                     ui.hide().unwrap();
-                    let mut p = park_inner.lock().unwrap();
+                    let mut p = park_inner.lock();
                     *p = true;
                 }
             }
@@ -267,7 +266,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         if !focused {
             if let Some(ui) = ui_weak_focus.upgrade() {
                 ui.hide().unwrap();
-                let mut p = park_inner.lock().unwrap();
+                let mut p = park_inner.lock();
                 *p = true;
             }
         }
@@ -281,10 +280,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         std::time::Duration::from_secs(1),
         move || {
             let (lock, cvar) = &*pair_for_timer;
-            let mut ready = lock.try_lock().unwrap();
+            let mut ready = lock.lock(); // not try_lock
             while !*ready {
                 debug!("blocking Ui");
-                ready = cvar.wait(ready).unwrap();
+                cvar.wait(&mut ready); // don't assign, just wait
                 debug!("waking Ui");
                 *ready = true;
             }
@@ -303,7 +302,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             focus_thread.thread().unpark();
 
             let ui_for_closure = ui_weak_clone.clone(); // Clone it for the closure
-            let mut p = park_listener.lock().unwrap();
+            let mut p = park_listener.lock();
             *p = false;
             slint::invoke_from_event_loop(move || {
                 if let Some(ui) = ui_for_closure.upgrade() {
@@ -318,7 +317,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             .unwrap();
         }
     });
-
     drop(config);
 
     slint::run_event_loop_until_quit().unwrap();

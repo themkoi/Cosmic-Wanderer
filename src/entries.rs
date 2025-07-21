@@ -48,7 +48,7 @@ impl DesktopEntryManager {
             .collect();
     }
 
-    pub fn get_normalized_entries(&self, icon_theme: &str) -> Vec<NormalDesktopEntry> {
+    pub fn get_normalized_entries(&self, icon_theme: &str, icon_size: &u16) -> Vec<NormalDesktopEntry> {
         let mut entries = Vec::new();
         let mut seen_names: std::collections::HashSet<String> = std::collections::HashSet::new();
 
@@ -92,6 +92,7 @@ impl DesktopEntryManager {
 
             let mut icon = lookup(&icon_name)
                 .with_cache()
+                .with_size(*icon_size)
                 .with_theme(&icon_theme)
                 .find();
 
@@ -99,6 +100,7 @@ impl DesktopEntryManager {
 
             if icon_path.is_empty() {
                 icon = lookup("application-x-executable")
+                    .with_size(*icon_size)
                     .with_cache()
                     .with_theme(&icon_theme)
                     .find();
