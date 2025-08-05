@@ -86,9 +86,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let start = Instant::now();
     let mut manager = DesktopEntryManager::new();
 
-    let normalized_entries = Arc::new(Mutex::new(
-        manager.get_normalized_entries(&config.general.icon_theme.clone(),&config.theme.icon_size.clone()),
-    ));
+    let normalized_entries = Arc::new(Mutex::new(manager.get_normalized_entries(
+        &config.general.icon_theme.clone(),
+        &config.theme.icon_size.clone(),
+    )));
 
     let (tx, rx) = channel();
 
@@ -112,7 +113,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         debug!("Entry changed");
                         manager.refresh();
                         let mut entries = normalized_entries_watcher_cloned.lock();
-                        *entries = manager.get_normalized_entries(&icon_theme,&icon_size);
+                        *entries = manager.get_normalized_entries(&icon_theme, &icon_size);
                     }
                     _ => {}
                 },
@@ -154,7 +155,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
             })
-            .unwrap();
+            .unwrap_or_else(|e| {
+                error!("Invoke failed focus: {}", e);
+            });
 
             if *park_thread.lock() {
                 let (lock, cvar) = &*pair_clone;
@@ -164,7 +167,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                         ui.invoke_text_entered(SharedString::from("nothing"));
                     }
                 })
-                .unwrap();
+                .unwrap_or_else(|e| {
+                    error!("Invoke failed enter text: {}", e);
+                });
                 *lock.lock() = false;
                 cvar.notify_one();
                 debug!("Parking thread.");
@@ -251,7 +256,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 drop(entries);
                 let park_inner = park_clicked.clone();
                 if let Some(ui) = ui_weak_clone_item.upgrade() {
-                    ui.hide().unwrap();
+                    ui.hide().unwrap_or_else(|e| {
+                        error!("failed to hide ui: {}", e);
+                    });
                     let mut p = park_inner.lock();
                     *p = true;
                 }
@@ -265,7 +272,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         let park_inner: Arc<Mutex<bool>> = park_focus.clone();
         if !focused {
             if let Some(ui) = ui_weak_focus.upgrade() {
-                ui.hide().unwrap();
+                ui.hide().unwrap_or_else(|e| {
+                    error!("failed to hide ui: {}", e);
+                });
                 let mut p = park_inner.lock();
                 *p = true;
             }
@@ -311,10 +320,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                     ui.invoke_focusText();
                     ui.set_selected_index(0);
                     ui.invoke_set_scroll(0.0);
-                    ui.show().unwrap();
+                    ui.show().unwrap_or_else(|e| {
+                        error!("failed to show ui: {}", e);
+                    });
                 }
             })
-            .unwrap();
+            .unwrap_or_else(|e| {
+                error!("invoke failed show ui: {}", e);
+            });
         }
     });
     drop(config);
