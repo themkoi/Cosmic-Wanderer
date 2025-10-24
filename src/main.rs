@@ -78,18 +78,20 @@ pub fn send_notification(message: &str) {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    let start = Instant::now();
     let config = load_or_create_config()?;
+    debug!("Load config taken: {:?}", start.elapsed());
     env_logger::init_from_env(
         env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "off"),
     );
 
-    let start = Instant::now();
     let mut manager = DesktopEntryManager::new();
 
     let normalized_entries = Arc::new(Mutex::new(manager.get_normalized_entries(
         &config.general.icon_theme.clone(),
         &config.theme.icon_size.clone(),
     )));
+    debug!("Load entries taken: {:?}", start.elapsed());
 
     let (tx, rx) = channel();
 
@@ -121,18 +123,22 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     });
+    debug!("init watcher taken: {:?}", start.elapsed());
 
     let _ = set_xdg_app_id("cosmic-wanderer");
     let ui = AppWindow::new()?;
     let ui_weak = ui.as_weak();
+    debug!("init window taken: {:?}", start.elapsed());
 
     let theme = theme_from_config(&config.theme);
     ui.set_theme(theme);
+    debug!("set theme taken: {:?}", start.elapsed());
     let slint_items = {
         let locked_entries = normalized_entries.lock();
         create_slint_items(&*locked_entries)
     };
     ui.set_appItems(ModelRc::new(Rc::new(slint_items)));
+    debug!("written app items taken: {:?}", start.elapsed());
     let park = Arc::new(Mutex::new(true));
     let ui_weak_focus = ui.as_weak();
     let park_thread = park.clone();
@@ -331,6 +337,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     });
     drop(config);
+    send_notification(&format!("Cosmic wander initialized took: {:?}", start.elapsed()));
 
     slint::run_event_loop_until_quit().unwrap();
     Ok(())
