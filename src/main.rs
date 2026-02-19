@@ -24,7 +24,7 @@ mod history;
 use crate::history::*;
 
 mod config;
-use config::{config_color_to_slint, load_or_create_config};
+use config::config_color_to_slint;
 
 slint::include_modules!();
 fn create_slint_items(
@@ -78,7 +78,8 @@ fn create_slint_items(
 
 fn theme_from_config(theme: &config::ThemeConfig) -> ThemeSlint {
     ThemeSlint {
-        fullscreen: theme.fullscreen as bool,
+        fullscreen: theme.maximise as bool,
+        search_icon_enable: theme.search_icon_enable as bool,
         grid_config: slint_generatedAppWindow::GridConfig {
             enabled: theme.grid_config.enabled,
             col: theme.grid_config.col as i32,
@@ -111,8 +112,6 @@ fn theme_from_config(theme: &config::ThemeConfig) -> ThemeSlint {
         comment_font_size: theme.comment_font_size as f32,
         font_family: theme.font_family.clone().into(),
         font_weight: theme.font_weight,
-        window_width: theme.window_width as f32,
-        window_height: theme.window_height as f32,
         window_border_width: theme.window_border_width as f32,
         input_height: theme.input_height as f32,
         animation_time: theme.animation_duration as i64,
@@ -131,10 +130,17 @@ pub fn send_notification(message: &str) {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let start = Instant::now();
-    let config = load_or_create_config()?;
+    unsafe {
+        std::env::set_var("QT_QPA_PLATFORM", "wayland");
+    }
+    #[cfg(feature = "config_file")]
+    let config = config::load_or_create_config()?;
+    #[cfg(not(feature = "config_file"))]
+    let config = config::default_config();
+
     debug!("Load config taken: {:?}", start.elapsed());
     env_logger::init_from_env(
-        env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "trace"),
+        env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"),
     );
 
     let mut manager = DesktopEntryManager::new();
@@ -169,7 +175,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                         debug!("Entry changed");
                         manager.refresh();
                         let mut entries = normalized_entries_watcher_cloned.lock();
-                        *entries = manager.get_normalized_entries(&icon_theme, &icon_size,blacklist.clone());
+                        *entries = manager.get_normalized_entries(
+                            &icon_theme,
+                            &icon_size,
+                            blacklist.clone(),
+                        );
                     }
                     _ => {}
                 },
@@ -185,15 +195,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     debug!("init window taken: {:?}", start.elapsed());
 
     let theme = theme_from_config(&config.theme);
-    ui.window().set_maximized(config.theme.fullscreen);
-    if !config.theme.fullscreen {
-        ui.window()
-            .set_size(slint::WindowSize::Physical(slint::PhysicalSize::new(
-                config.theme.window_width as u32,
-                config.theme.window_height as u32,
-            )));
-    }
-    ui.set_theme(theme);
+    ui.window().set_maximized(config.theme.maximise);
+    ui.set_theme(theme.clone());
     debug!("set theme taken: {:?}", start.elapsed());
     let grid_config = config.theme.grid_config.clone();
     let slint_items = {
@@ -234,6 +237,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 slint::invoke_from_event_loop(move || {
                     if let Some(ui) = ui_for_closure.upgrade() {
                         ui.invoke_text_entered(SharedString::from("nothing"));
+                        ui.hide().unwrap();
                     }
                 })
                 .unwrap_or_else(|e| {
@@ -331,29 +335,18 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
                 drop(entries);
                 let park_inner = park_clicked.clone();
-                if let Some(ui) = ui_weak_clone_item.upgrade() {
-                    ui.hide().unwrap_or_else(|e| {
-                        error!("failed to hide ui: {}", e);
-                    });
-                    let mut p = park_inner.lock();
-                    *p = true;
-                }
+                let mut p = park_inner.lock();
+                *p = true;
             }
         }
     });
 
     let park_focus = park.clone();
-    let ui_weak_focus = ui_weak.clone();
     ui.on_focus_changed(move |focused| {
         let park_inner: Arc<Mutex<bool>> = park_focus.clone();
         if !focused {
-            if let Some(ui) = ui_weak_focus.upgrade() {
-                ui.hide().unwrap_or_else(|e| {
-                    error!("failed to hide ui: {}", e);
-                });
-                let mut p = park_inner.lock();
-                *p = true;
-            }
+            let mut p = park_inner.lock();
+            *p = true;
         }
     });
 
@@ -384,33 +377,51 @@ fn main() -> Result<(), Box<dyn Error>> {
     let ui_weak_clone = ui_weak.clone();
     thread::spawn(move || {
         while let Ok((_stream, _addr)) = listener.accept() {
-            focus_thread.thread().unpark();
+            let asleep = *park_listener.lock();
 
-            let ui_for_closure = ui_weak_clone.clone(); // Clone it for the closure
-            let mut p = park_listener.lock();
-            *p = false;
-            slint::invoke_from_event_loop(move || {
-                if let Some(ui) = ui_for_closure.upgrade() {
-                    ui.set_text_input(SharedString::from(""));
-                    ui.invoke_text_entered(SharedString::from(""));
-                    ui.invoke_focusText();
-                    ui.set_selected_index(0);
-                    ui.invoke_set_scroll(0.0);
-                    ui.show().unwrap_or_else(|e| {
-                        error!("failed to show ui: {}", e);
-                    });
-                }
-            })
-            .unwrap_or_else(|e| {
-                error!("invoke failed show ui: {}", e);
-            });
+            debug!("window sleeping {}", asleep);
+
+            if asleep == true {
+                debug!("opening window");
+
+                let mut p = park_listener.lock();
+                *p = false;
+                focus_thread.thread().unpark();
+
+                let ui_for_closure = ui_weak_clone.clone(); // Clone it for the closure
+
+                slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = ui_for_closure.upgrade() {
+                        ui.set_text_input(SharedString::from(""));
+                        ui.invoke_text_entered(SharedString::from(""));
+                        ui.invoke_focusText();
+                        ui.set_selected_index(0);
+                        ui.set_current_page(0);
+                        ui.invoke_set_scroll(0.0);
+                        ui.show().unwrap_or_else(|e| {
+                            error!("failed to show ui: {}", e);
+                        });
+                    }
+                })
+                .unwrap_or_else(|e| {
+                    error!("invoke failed show ui: {}", e);
+                });
+            } else {
+                let mut p = park_listener.lock();
+                *p = true;
+                debug!("closing window");
+            }
         }
     });
     drop(config);
+    drop(theme);
+
+    /*
     send_notification(&format!(
         "Cosmic wander initialized took: {:?}",
         start.elapsed()
     ));
+    */
 
     slint::run_event_loop_until_quit().unwrap();
     Ok(())

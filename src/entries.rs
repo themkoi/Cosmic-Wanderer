@@ -66,6 +66,7 @@ impl DesktopEntryManager {
                 None => continue,
             };
 
+            // debug!("Entry.appid is: {}", entry.appid);
             if blacklist.contains(&entry.appid) {
                 continue;
             }

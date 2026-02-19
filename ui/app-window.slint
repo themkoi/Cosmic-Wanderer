@@ -21,15 +21,16 @@ struct GridConfig {
     selected_button_color: color,
     button_text_color: color,
     selected_button_text_color: color,
-arrow-button-width: length,
-arrow-button-height: length,
-sort-button-width: length,
-sort-button-height: length,
+    arrow-button-width: length,
+    arrow-button-height: length,
+    sort-button-width: length,
+    sort-button-height: length,
     button-border-radius: length,
 }
 
 export struct ThemeSlint {
     fullscreen: bool,
+    search_icon_enable: bool,
     grid_config: GridConfig,
     window-background: color,
     main_window_background: color,
@@ -47,8 +48,6 @@ export struct ThemeSlint {
     comment-font-size: length,
     font-family: string,
     font-weight: int,
-    window-width: length,
-    window-height: length,
     window-border-width: length,
     input-height: length,
     animation-time: duration}
@@ -61,8 +60,8 @@ export global Palette {
 export component AppWindow inherits Window {
     in property <ThemeSlint> theme;
 
-    property <length> window_width: theme.window-width;
-    property <length> window_height: theme.window-height;
+    property <length> window_width: root.width;
+    property <length> window_height: root.height;
     no-frame: true;
     title: "Cosmic Wanderer";
 
@@ -70,6 +69,7 @@ export component AppWindow inherits Window {
     in-out property <bool> focused: true;
     in-out property <bool> scopeFocused: true;
     in-out property <int> selected_index: 0;
+    in-out property <int> current_page: 0;
     in-out property <string> text_input;
     callback focus_changed(bool);
     callback text_entered(string);
@@ -100,21 +100,28 @@ export component AppWindow inherits Window {
         background: root.theme.window-background;
         border-color: root.theme.selected-item-background;
         border-radius: root.theme.item-border-radius;
-        height: root.theme.window-height - root.theme.input-height;
-        width: root.theme.window-width * 0.96;
+        height: window_height - root.theme.input-height;
+        width: window_width * 0.96;
         y: root.theme.input-height;
-        x: root.theme.window-width * 0.02;
+        x: window_width * 0.02;
     }
 
-    Rectangle {
+    input_rectangle := Rectangle {
         border-width: root.theme.input-border-width;
         clip: false;
         background: root.theme.window-background;
         border-color: root.theme.selected-item-background;
         border-radius: root.theme.item-border-radius;
-        width: root.theme.window-width * 0.96;
-        x: root.theme.window-width * 0.02;
-        y: root.theme.window-width * 0.02;
+        width: window_width * 0.96;
+        x: window_width * 0.02;
+        y: window_height * 0.02;
+        if root.theme.search-icon-enable: Image {
+            x: (parent.width * 0.99) - (parent.height * 0.8);
+            height: parent.height * 0.8;
+            source: @image-url("icons/search_24dp_000000.svg");
+            colorize: root.theme.selected-item-background;
+        }
+
         height: root.theme.input-height * 0.80;
     }
 
@@ -139,9 +146,9 @@ export component AppWindow inherits Window {
             text-color: root.theme.unselected-text-color;
             margin: 10px;
             horizontal-alignment: left;
-            width: parent.width * 0.96 - 16px;
+            width: root.theme.search-icon-enable ? ((parent.width * 0.96 - 16px) - (input_rectangle.height * 0.8)) - input_rectangle.width * 0.01 : parent.width * 0.96 - 16px;
             x: window-width * 0.02 + 16px;
-            y: window-width * 0.02;
+            y: window-height * 0.02;
             height: root.theme.input-height * 0.80;
 
             font-size: root.theme.input-font-size;
@@ -282,15 +289,15 @@ export component AppWindow inherits Window {
             }
         }
 
-        in-out property <int> current_page: 0;
         property <int> columns: root.theme.grid_config.col;
         property <int> rows: root.theme.grid_config.row;
+        property <length> arrow-size-grid: 100px;
+        property <length> page-number-size-grid: 50px;
         gridVertical := VerticalLayout {
-            alignment: center;
+            y: (window-height * 0.02) + (root.theme.input-height * 1.00);
+            height: window_height - ((window-height * 0.06) + (root.theme.input-height * 1.00));
+            alignment: stretch;
             visible: root.theme.grid_config.enabled;
-            y: root.theme.input-height * 1.05;
-            height: window_height - (root.theme.input-height * 1.05);
-            spacing: 20px;
 
             HorizontalLayout {
                 width: parent.width;
@@ -307,40 +314,53 @@ export component AppWindow inherits Window {
                         visible: local_index >= 0 && local_index < (columns * rows);
                         row: grid_index / columns;
                         col: Math.mod(grid_index, columns);
-                        min-width: (root.theme.window-width * 0.96) / columns;
-                        min-height: ((root.theme.window-height * 0.80) - (root.theme.input-height * 1.09)) / rows;
-                        Rectangle {
+                        min-width: (window_width * 0.96) / columns;
+                        min-height: ((window_height * 0.80) - (root.theme.input-height * 1.09)) / rows;
+                        grid_rectangle:= Rectangle {
                             border-radius: root.theme.item-border-radius;
                             background: touch_grid.has-hover && data.exec != "" ? root.theme.selected-item-background : root.theme.item-background;
                             animate background { duration: root.theme.animation-time; }
                             width: parent.min-width;
-                            height: parent.height;
+                            height: parent.min-height;
 
                             VerticalLayout {
                                 width: parent.width;
                                 height: parent.height;
-                                alignment: center;
+                                alignment: stretch;
+                                Rectangle {
+                                    vertical-stretch: 1;
+                                }
+
                                 HorizontalLayout {
-                                    width: parent.width;
                                     alignment: center;
 
-                                    Image {
-                                        width: root.theme.icon-size;
-                                        height: root.theme.icon-size;
+                                    grid_icon:= Image {
+                                    width: min(root.theme.icon-size, grid_rectangle.height - root.theme.comment-font-size*1.1);
+                                        height: min(root.theme.icon-size, grid_rectangle.height - root.theme.comment-font-size*1.1);
                                         source: data.icon;
                                     }
                                 }
 
+                                Rectangle {
+                                    vertical-stretch: 0.2;
+                                }
+
                                 Text {
-                                    width: parent.width;
+                                    x: parent.width * 0.1;
+                                    width: parent.width * 0.8;
                                     text: data.app_name;
                                     horizontal-alignment: center;
                                     font-weight: root.theme.font-weight;
                                     font-family: root.theme.font-family;
-                                    font-size: root.theme.comment-font-size;
+                                    font-size: max(5px, min(root.theme.comment-font-size, grid_rectangle.height - grid_icon.height));
                                     color: touch_grid.has-hover ? root.theme.selected-text-color : root.theme.unselected-text-color;
                                     animate color { duration: root.theme.animation-time; }
                                     overflow: elide;
+                                    wrap: word-wrap;
+                                }
+
+                                Rectangle {
+                                    vertical-stretch: 1;
                                 }
                             }
                         }
@@ -349,26 +369,20 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+                                            Rectangle {
+                                    vertical-stretch: 1;
+                                }
 
             HorizontalLayout {
                 width: parent.width;
                 alignment: stretch;
                 spacing: 5px;
-
                 Rectangle {
-                    horizontal-stretch: 0.04;
-                }
-
-                Rectangle {
-                    width: root.theme.grid-config.sort-button-width;
-                }
-                // Centered buttons
-                        Rectangle {
-                    horizontal-stretch: 1.0;
+                    horizontal-stretch: 0.1;
                 }
 
                 // Previous Page
-        gridLeft := TouchArea {
+                gridLeft := TouchArea {
                     width: root.theme.grid-config.arrow-button-width;
                     height: root.theme.grid-config.arrow-button-height;
                     clicked => {
@@ -377,21 +391,36 @@ export component AppWindow inherits Window {
 
                     Rectangle {
                         border_radius: root.theme.grid-config.button-border-radius;
-                        background: gridLeft.has-hover ? root.theme.grid-config.selected-button-color : root.theme.grid-config.button-color;
+                        background: gridLeft.pressed ? root.theme.grid-config.selected-button-color : root.theme.grid-config.button-color;
                         animate background { duration: root.theme.animation-time; }
-
-                        Text {
-                            text: "Previous Page";
-                            color: gridLeft.has-hover ? root.theme.grid-config.selected-button-text-color : root.theme.grid-config.button-text-color;
-                            animate color { duration: root.theme.animation-time; }
-                            horizontal_alignment: center;
-                            vertical_alignment: center;
+                        Image {
+                            width: arrow-size-grid;
+                            height: arrow-size-grid;
+                            source: @image-url("icons/arrow_back_24dp_000000.svg");
+                            colorize: gridLeft.pressed ? root.theme.grid-config.selected-button-text-color : root.theme.grid-config.button-text-color;
                         }
                     }
                 }
 
+                Rectangle {
+                    horizontal-stretch: 1.0;
+                }
+
+                Text {
+                    text: (current_page + 1) + "/" + root.appItems.max-pages;
+                    font-weight: root.theme.font-weight;
+                    font-family: root.theme.font-family;
+                    font-size: page-number-size-grid;
+                    color: root.theme.grid-config.button-text-color;
+                    horizontal_alignment: center;
+                    vertical_alignment: center;
+                }
+
+                Rectangle {
+                    horizontal-stretch: 1.0;
+                }
                 // Next Page
-        gridRight := TouchArea {
+                gridRight := TouchArea {
                     width: root.theme.grid-config.arrow-button-width;
                     height: root.theme.grid-config.arrow-button-height;
                     clicked => {
@@ -400,50 +429,24 @@ export component AppWindow inherits Window {
 
                     Rectangle {
                         border_radius: root.theme.grid-config.button-border-radius;
-                        background: gridRight.has-hover ? root.theme.grid-config.selected-button-color : root.theme.grid-config.button-color;
+                        background: gridRight.pressed ? root.theme.grid-config.selected-button-color : root.theme.grid-config.button-color;
                         animate background { duration: root.theme.animation-time; }
-
-                        Text {
-                            text: "Next Page";
-                            color: gridRight.has-hover ? root.theme.grid-config.selected-button-text-color : root.theme.grid-config.button-text-color;
-                            animate color { duration: root.theme.animation-time; }
-                            horizontal_alignment: center;
-                            vertical_alignment: center;
+                        Image {
+                            width: arrow-size-grid;
+                            height: arrow-size-grid;
+                            source: @image-url("icons/arrow_forward_24dp_000000.svg");
+                            colorize: gridRight.pressed ? root.theme.grid-config.selected-button-text-color : root.theme.grid-config.button-text-color;
                         }
                     }
                 }
 
                 Rectangle {
-                    horizontal-stretch: 1.0;
-                }
-                // Right-aligned button
-
-        gridSort := TouchArea {
-                    width: root.theme.grid-config.sort-button-width;
-                    height: root.theme.grid-config.sort-button-height;
-                    clicked => {
-                        root.sort_clicked();
-                    }
-
-                    Rectangle {
-                        border_radius: root.theme.grid-config.button-border-radius;
-                        background: gridSort.has-hover ? root.theme.grid-config.selected-button-color : root.theme.grid-config.button-color;
-                        animate background { duration: root.theme.animation-time; }
-
-                        Text {
-                            text: "Sorting Toggle";
-                            color: gridSort.has-hover ? root.theme.grid-config.selected-button-text-color : root.theme.grid-config.button-text-color;
-                            animate color { duration: root.theme.animation-time; }
-                            horizontal_alignment: center;
-                            vertical_alignment: center;
-                        }
-                    }
-                }
-
-                Rectangle {
-                    horizontal-stretch: 0.04;
+                    horizontal-stretch: 0.1;
                 }
             }
+                                            Rectangle {
+                                    vertical-stretch: 0.3;
+                                }
         }
     }
 
