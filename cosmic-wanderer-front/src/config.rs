@@ -61,9 +61,7 @@ pub struct ThemeConfig {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GeneralConfig {
-    pub icon_theme: String,
     pub socket_path: String,
-    pub blacklist: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -163,9 +161,7 @@ pub fn default_config() -> Config {
             animation_duration: 100,
         },
         general: GeneralConfig {
-            icon_theme: "Papirus-Dark".to_string(),
             socket_path: "/tmp/comsic-wanderer.sock".to_string(),
-            blacklist: Vec::new(),
         },
     }
 }
@@ -261,12 +257,7 @@ pub fn default_config() -> Config {
             animation_duration: 0,
         },
         general: GeneralConfig {
-            icon_theme: "Papirus-Dark".to_string(),
             socket_path: "/tmp/comsic-wanderer.sock".to_string(),
-            blacklist: vec!["syncthing-start", "syncthing-ui", "vncviewer"]
-                .into_iter()
-                .map(String::from)
-                .collect(),
         },
     }
 }

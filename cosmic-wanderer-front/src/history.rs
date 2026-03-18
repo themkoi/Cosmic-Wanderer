@@ -2,7 +2,7 @@ use serde::{Serialize, Deserialize};
 use std::{collections::HashMap, fs, path::PathBuf};
 use dirs::cache_dir;
 
-use crate::entries::*;
+use crate::*;
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct HistoryData {
@@ -39,9 +39,9 @@ pub fn increment_usage(history: &mut HistoryMap, appid: &str) {
 }
 
 pub fn sorted_entries_by_usage(
-    entries: &[NormalDesktopEntry],
+    entries: &[EntryIn],
     usage: &HistoryMap,
-) -> Vec<NormalDesktopEntry> {
+) -> Vec<EntryIn> {
     let mut sorted: Vec<_> = entries.to_vec(); // clones entries
     sorted.sort_by(|a, b| {
         let a_count = usage.get(&a.appid).map(|h| h.usage_count).unwrap_or(0);
