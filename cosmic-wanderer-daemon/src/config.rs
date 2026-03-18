@@ -26,7 +26,7 @@ pub fn default_config() -> Config {
     Config {
         general: GeneralConfig {
             icon_theme: "Papirus-Dark".to_string(),
-            icon_size: 48,
+            icon_size: 16,
             socket_path: "/tmp/comsic-wanderer.sock".to_string(),
             blacklist: Vec::new(),
         },

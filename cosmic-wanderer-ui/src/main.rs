@@ -1,21 +1,19 @@
 use log::{debug, error};
 use notify_rust::Notification;
-use parking_lot::{Condvar, Mutex};
+use parking_lot::{Mutex};
 use shlex::Shlex;
-use slint::{Image, Model, ModelRc, SharedString, VecModel, set_xdg_app_id};
+use slint::{Image, Model, ModelRc, VecModel, set_xdg_app_id};
 use std::{
     error::Error,
-    fs,
     io::Read,
     os::unix::{
-        net::{UnixListener, UnixStream},
+        net::{UnixStream},
         process::CommandExt,
     },
     process::{Command, Stdio},
     rc::Rc,
     sync::Arc,
     thread,
-    time::Instant,
 };
 
 use fuzzy_matcher::FuzzyMatcher;
@@ -32,7 +30,6 @@ slint::include_modules!();
 
 #[derive(serde::Deserialize, Clone)]
 pub struct EntryIn {
-    name: String,
     appid: String,
     app_name: String,
     exec: String,
@@ -188,8 +185,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init_from_env(
         env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"),
     );
-    let start = Instant::now();
-
     unsafe {
         std::env::set_var("QT_QPA_PLATFORM", "wayland");
     }
@@ -205,7 +200,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let _ = set_xdg_app_id("cosmic-wanderer");
     let ui = AppWindow::new()?;
-    let ui_weak = ui.as_weak();
 
     let theme = theme_from_config(&config.theme);
     ui.window().set_maximized(config.theme.maximise);
@@ -222,8 +216,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     ui.set_appItems(slint_items);
 
-    let entries_clone = entries.clone();
-    let socket_clone = socket_path.clone();
     let ui_weak_clone_text = ui.as_weak();
 
     ui.on_text_entered(move |text| {
@@ -303,7 +295,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let ui_for_focus_thread = ui.as_weak();
 
-    let focus_thread = thread::spawn(move || {
+    thread::spawn(move || {
         loop {
             std::thread::sleep(std::time::Duration::from_millis(50));
             let ui_for_closure = ui_for_focus_thread.clone();
@@ -311,7 +303,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 if let Some(ui) = ui_for_closure.upgrade() {
                     if !ui.get_scopeFocused() {
                         if !ui.invoke_readFocus() {
-                            ui.hide();
+                            ui.hide().unwrap();
                         }
                     }
                 }
@@ -326,7 +318,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     ui.on_focus_changed(move |focused| {
         if !focused {
             if let Some(ui) = ui_weak_clone_focus.upgrade() {
-                ui.hide();
+                ui.hide().unwrap();
             }
         }
     });

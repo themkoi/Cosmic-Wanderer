@@ -55,7 +55,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let socket_path = config.general.socket_path.clone();
 
     let mut manager = DesktopEntryManager::new();
-    println!("icon {}", &config.general.icon_size);
 
     let entries = Arc::new(Mutex::new(manager.get_normalized_entries(
         &config.general.icon_theme,

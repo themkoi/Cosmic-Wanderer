@@ -1,9 +1,6 @@
 use freedesktop_desktop_entry::{DesktopEntry, Iter, default_paths, get_languages_from_env};
 use freedesktop_icons::lookup;
-use fuzzy_matcher::FuzzyMatcher;
-use fuzzy_matcher::skim::SkimMatcherV2;
 use log::debug;
-use std::cmp::Ordering;
 use std::collections::HashSet;
 
 #[derive(Clone)]
@@ -148,40 +145,5 @@ impl DesktopEntryManager {
         }
 
         entries
-    }
-
-    pub fn filter_and_sort_entries(
-        text: &str,
-        normalized_entries: &[NormalDesktopEntry],
-    ) -> Vec<NormalDesktopEntry> {
-        let matcher = SkimMatcherV2::default();
-
-        let mut matched_entries: Vec<(i64, NormalDesktopEntry)> = normalized_entries
-            .iter()
-            .filter_map(|entry| {
-                let search_string = format!(
-                    "{} {} {} {}",
-                    entry.app_name, entry.comment, entry.appid, entry.exec
-                );
-
-                matcher
-                    .fuzzy_match(&search_string, text)
-                    .map(|score| (score, entry.clone()))
-            })
-            .collect();
-
-        matched_entries.sort_by(|a, b| {
-            let score_cmp = b.0.cmp(&a.0);
-            if score_cmp == Ordering::Equal {
-                a.1.app_name.len().cmp(&b.1.app_name.len())
-            } else {
-                score_cmp
-            }
-        });
-
-        matched_entries
-            .into_iter()
-            .map(|(_, entry)| entry)
-            .collect()
     }
 }
