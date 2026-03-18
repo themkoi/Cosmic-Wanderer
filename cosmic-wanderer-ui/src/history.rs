@@ -39,9 +39,9 @@ pub fn increment_usage(history: &mut HistoryMap, appid: &str) {
 }
 
 pub fn sorted_entries_by_usage(
-    entries: &[EntryIn],
+    entries: &[Entry],
     usage: &HistoryMap,
-) -> Vec<EntryIn> {
+) -> Vec<Entry> {
     let mut sorted: Vec<_> = entries.to_vec(); // clones entries
     sorted.sort_by(|a, b| {
         let a_count = usage.get(&a.appid).map(|h| h.usage_count).unwrap_or(0);
