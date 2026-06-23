@@ -73,7 +73,7 @@ pub fn render_svg_to_compressed(path: &str, width: i32, height: i32) -> (Vec<u8>
     encoder
         .write_image(&data, width.try_into().unwrap(), height.try_into().unwrap(), ColorType::Rgba8.into())
         .ok();
-a
+
     (buf, width as u32, height as u32)
 }
 
