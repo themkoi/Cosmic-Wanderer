@@ -1,21 +1,22 @@
 use log::{debug, error};
 use notify_rust::Notification;
 use parking_lot::Mutex;
+use rayon::prelude::*;
 use shlex::Shlex;
 use slint::{Image, Model, ModelRc, VecModel, set_xdg_app_id};
 use slint::{Rgba8Pixel, SharedPixelBuffer};
 use std::fs::File;
 use std::path::PathBuf;
-use std::{fs, vec};
 use std::{
     error::Error,
     io::Read,
-    os::unix::{net::UnixStream, process::CommandExt},
+    os::unix::{process::CommandExt},
     process::{Command, Stdio},
     rc::Rc,
     sync::Arc,
     thread,
 };
+use std::{fs, process, vec};
 
 use dirs::cache_dir;
 
@@ -132,9 +133,9 @@ fn get_cache_folder() -> PathBuf {
 
 fn fetch_entries_from_file() -> Vec<EntryIn> {
     let mut cache = get_cache_folder();
-    cache.push("entries.zst");
+    cache.push("entries.txt");
 
-    let file = match File::open(cache) {
+    let mut file = match File::open(cache) {
         Ok(f) => f,
         Err(e) => {
             error!("file open failed: {}", e);
@@ -142,17 +143,9 @@ fn fetch_entries_from_file() -> Vec<EntryIn> {
         }
     };
 
-    let mut decoder = match zstd::Decoder::new(file) {
-        Ok(d) => d,
-        Err(e) => {
-            error!("Zstd decoder init failed: {}", e);
-            return vec![];
-        }
-    };
-
     let mut buf = String::new();
 
-    if decoder.read_to_string(&mut buf).is_ok() {
+    if file.read_to_string(&mut buf).is_ok() {
         serde_json::from_str(&buf).unwrap_or_default()
     } else {
         error!("Failed to decompress or read from file");
@@ -214,12 +207,40 @@ pub fn send_notification(message: &str) {
 
 use std::time::Instant;
 
+fn kill_all_if_multiple_instances() {
+    let mut target_pids = Vec::new();
+    let self_path = std::env::current_exe().unwrap();
+
+    for entry in fs::read_dir("/proc").unwrap() {
+        if let Ok(entry) = entry {
+            let file_name = entry.file_name();
+            if let Ok(pid) = file_name.to_string_lossy().parse::<i32>() {
+                let exe_path = format!("/proc/{}/exe", pid);
+                if let Ok(path) = fs::read_link(exe_path) {
+                    if path == self_path {
+                        target_pids.push(pid);
+                    }
+                }
+            }
+        }
+    }
+
+    if target_pids.len() > 1 {
+        for pid in target_pids {
+            let _ = process::Command::new("kill")
+                .arg(pid.to_string())
+                .status();
+        }
+        process::exit(0);
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let start_time = Instant::now();
     env_logger::init_from_env(
         env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"),
     );
-
+    kill_all_if_multiple_instances();
     unsafe {
         std::env::set_var("QT_QPA_PLATFORM", "wayland");
     }
@@ -231,8 +252,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     debug!("[{:?}] Loaded config", start_time.elapsed());
 
-    let socket_path = config.general.socket_path.clone();
-
     let entries = Arc::new(Mutex::new(Vec::<Entry>::new()));
     let entries_for_thread = entries.clone();
     let _ = set_xdg_app_id("cosmic-wanderer");
@@ -241,17 +260,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     let fetch_handle = std::thread::spawn(move || {
         debug!("[{:?}] fetching items", start_time.elapsed());
         let fetched = fetch_entries_from_file();
-        let mut decoded_entry: Vec<Entry> = vec![];
 
-        for entry_in in fetched.iter() {
-            decoded_entry.push(Entry {
-                app_name: entry_in.app_name.clone().into(),
-                appid: entry_in.appid.clone().into(),
-                exec: entry_in.exec.clone().into(),
-                comment: entry_in.comment.clone().into(),
-                icon: decode_compressed_to_rgba(&entry_in.icon_compressed.clone()).unwrap(),
-            });
-        }
+        let decoded_entry: Vec<_> = fetched
+            .par_iter()
+            .map(|entry_in| Entry {
+                app_name: entry_in.app_name.clone(),
+                appid: entry_in.appid.clone(),
+                exec: entry_in.exec.clone(),
+                comment: entry_in.comment.clone(),
+                icon: decode_compressed_to_rgba(&entry_in.icon_compressed).unwrap(),
+            })
+            .collect();
 
         let history = load_history();
         let sorted = sorted_entries_by_usage(&decoded_entry, &history);
@@ -261,6 +280,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         sorted
     });
+    debug!("[{:?}] creating ui", start_time.elapsed());
     let ui = AppWindow::new()?;
     debug!("[{:?}] UI created", start_time.elapsed());
 
@@ -270,18 +290,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let grid_config_clone = grid_config.clone();
     let ui_weak = ui.as_weak();
-    std::thread::spawn(move || {
-        let items = fetch_handle.join().expect("Fetch thread panicked");
-        debug!("[{:?}] writing items to slint", start_time.elapsed());
-        slint::invoke_from_event_loop(move || {
-            if let Some(ui) = ui_weak.upgrade() {
-                let slint_items = create_slint_items(&items, grid_config.clone());
-                ui.set_appItems(slint_items);
-                debug!("[{:?}] written items to ui", start_time.elapsed());
-            }
-        })
-        .unwrap();
-    });
 
     let ui_weak_clone_text = ui.as_weak();
     ui.on_text_entered(move |text| {
@@ -397,7 +405,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     ui.show().ok();
     debug!("[{:?}] UI Initialized", start_time.elapsed());
     ui.invoke_focusText();
+    let items = fetch_handle.join().expect("Fetch thread panicked");
 
+    slint::invoke_from_event_loop(move || {
+        if let Some(ui) = ui_weak.upgrade() {
+            debug!("[{:?}] creating", start_time.elapsed());
+            let slint_items = create_slint_items(&items, grid_config.clone());
+            debug!("[{:?}] created items", start_time.elapsed());
+            ui.set_appItems(slint_items);
+            debug!("[{:?}] written items to ui", start_time.elapsed());
+        }
+    })
+    .unwrap();
     ui.run()?;
     debug!("[{:?}] Application exited", start_time.elapsed());
     Ok(())

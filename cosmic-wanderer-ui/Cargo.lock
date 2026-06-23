@@ -990,6 +990,8 @@ dependencies = [
  "notify",
  "notify-rust",
  "parking_lot",
+ "qoi",
+ "rayon",
  "serde",
  "serde_json",
  "shlex",

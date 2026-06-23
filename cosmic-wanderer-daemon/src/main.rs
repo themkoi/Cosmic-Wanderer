@@ -3,17 +3,12 @@ use image::codecs::png::PngEncoder;
 use log::{debug, error};
 use notify::event::{CreateKind, EventKind, ModifyKind, RemoveKind};
 use notify::{RecursiveMode, Watcher, recommended_watcher};
-use parking_lot::Mutex;
+use rsvg::Loader;
 use serde::Serialize;
 use std::fs::{self, File};
+use std::io::Cursor;
 use std::path::PathBuf;
-use std::{
-    error::Error,
-    io::Write,
-    os::unix::net::UnixListener,
-    sync::{Arc, mpsc::channel},
-    thread,
-};
+use std::{error::Error, io::Write, sync::mpsc::channel, thread};
 
 use dirs::cache_dir;
 
@@ -35,37 +30,60 @@ struct EntryOut<'a> {
     height: u32,
 }
 
+use cairo::{Context, Format, ImageSurface, Rectangle};
 use image::{ColorType, ImageEncoder, ImageReader}; // needed imports
-use resvg::tiny_skia::Pixmap;
-use resvg::usvg::{self, Transform};
 
-fn load_icon_compressed(path: &str) -> (Vec<u8>, u32, u32) {
-    // SVG -> render to raster, compress to PNG
-    if path.ends_with(".svg") {
-        if let Ok(data) = std::fs::read(path) {
-            if let Ok(tree) = usvg::Tree::from_data(&data, &usvg::Options::default()) {
-                let width = tree.size().width().ceil() as u32;
-                let height = tree.size().height().ceil() as u32;
+pub fn render_svg_to_compressed(path: &str, width: i32, height: i32) -> (Vec<u8>, u32, u32) {
+    let handle = Loader::new().read_path(path).unwrap();
 
-                if let Some(mut pixmap) = Pixmap::new(width, height) {
-                    let _ = resvg::render(&tree, Transform::default(), &mut pixmap.as_mut());
+    let mut surface = ImageSurface::create(Format::ARgb32, width, height).unwrap();
 
-                    let rgba = pixmap.data();
-                    let mut buf = Vec::new();
-                    let encoder = PngEncoder::new(&mut buf);
-                    // use write_image instead of encode
-                    encoder
-                        .write_image(rgba, width, height, ColorType::Rgba8.into())
-                        .ok();
+    {
+        let cr = Context::new(&surface).unwrap();
+        let renderer = rsvg::CairoRenderer::new(&handle);
 
-                    return (buf, width, height);
-                }
-            }
+        renderer
+            .render_document(&cr, &Rectangle::new(0.0, 0.0, width as f64, height as f64))
+            .unwrap();
+    } // <- cr dropped here
+
+    let mut data = surface.data().unwrap().to_vec();
+
+    // fix channel order if needed
+    for px in data.chunks_exact_mut(4) {
+        let a = px[3] as u32;
+
+        if a > 0 {
+            let r = px[2] as u32;
+            let g = px[1] as u32;
+            let b = px[0] as u32;
+
+            px[0] = ((r * 255) / a) as u8;
+            px[1] = ((g * 255) / a) as u8;
+            px[2] = ((b * 255) / a) as u8;
+        } else {
+            px[0] = 0;
+            px[1] = 0;
+            px[2] = 0;
         }
-        return (vec![], 0, 0);
+    }
+    let mut buf = Vec::new();
+    let encoder = PngEncoder::new(&mut buf);
+
+    encoder
+        .write_image(&data, width.try_into().unwrap(), height.try_into().unwrap(), ColorType::Rgba8.into())
+        .ok();
+a
+    (buf, width as u32, height as u32)
+}
+
+fn load_icon_compressed(path: &str, width: i32, height: i32) -> (Vec<u8>, u32, u32) {
+    // SVG -> render to raster, compress to QOI
+    if path.ends_with(".svg") {
+        return render_svg_to_compressed(path, width, height);
     }
 
-    // Raster image -> compress to PNG
+    // Raster image -> compress to QOI
     if let Ok(reader) = ImageReader::open(path) {
         // unwrap the decode result
         let img = reader.decode().expect("Failed to decode image");
@@ -84,11 +102,11 @@ fn load_icon_compressed(path: &str) -> (Vec<u8>, u32, u32) {
     (vec![], 0, 0)
 }
 
-fn format_entries(entries: &[NormalDesktopEntry]) -> String {
+fn format_entries(entries: &[NormalDesktopEntry], size: i32) -> String {
     let data: Vec<EntryOut> = entries
         .iter()
         .map(|e| {
-            let (icon_compressed, width, height) = load_icon_compressed(&e.icon);
+            let (icon_compressed, width, height) = load_icon_compressed(&e.icon, size, size);
             EntryOut {
                 name: &e.app_name,
                 appid: &e.appid,
@@ -113,21 +131,20 @@ fn get_cache_folder() -> PathBuf {
     path
 }
 
-fn save_compressed(entries: &[NormalDesktopEntry]) {
+fn save_compressed(entries: &[NormalDesktopEntry], size: i32) {
     let data = {
         let locked = entries;
-        format_entries(&locked)
+        format_entries(&locked, size)
     };
 
     let mut location = get_cache_folder();
-    location.push("entries.zst");
-    let file = File::create(location).unwrap();
-    let mut encoder = zstd::Encoder::new(file, 1).unwrap();
+    location.push("entries.txt");
+    let mut file = File::create(location).unwrap();
 
-    if let Err(e) = encoder.write_all(data.as_bytes()) {
-        error!("Compression/Write failed: {}", e);
+    if let Err(e) = file.write_all(data.as_bytes()) {
+        error!("write failed {}", e);
     } else {
-        encoder.finish().unwrap();
+        file.flush().unwrap();
     }
 }
 
@@ -148,7 +165,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         &config.general.icon_size,
         config.general.blacklist.clone(),
     );
-    save_compressed(&entries);
+    save_compressed(&entries, config.general.icon_size.into());
 
     let (tx, rx) = channel();
     let mut watcher = recommended_watcher(tx)?;
@@ -174,7 +191,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             &config.general.icon_size,
                             config.general.blacklist.clone(),
                         );
-                        save_compressed(&entries);
+                        save_compressed(&entries, config.general.icon_size.into());
                     }
                     _ => {}
                 },

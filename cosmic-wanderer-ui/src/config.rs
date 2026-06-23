@@ -60,14 +60,8 @@ pub struct ThemeConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct GeneralConfig {
-    pub socket_path: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
     pub theme: ThemeConfig,
-    pub general: GeneralConfig,
 }
 
 #[cfg(not(feature = "quill_defaults"))]
@@ -159,9 +153,6 @@ pub fn default_config() -> Config {
             window_border_width: 2,
             input_height: 70,
             animation_duration: 100,
-        },
-        general: GeneralConfig {
-            socket_path: "/tmp/comsic-wanderer.sock".to_string(),
         },
     }
 }
@@ -255,9 +246,6 @@ pub fn default_config() -> Config {
             window_border_width: 0,
             input_height: 70,
             animation_duration: 0,
-        },
-        general: GeneralConfig {
-            socket_path: "/tmp/comsic-wanderer.sock".to_string(),
         },
     }
 }
