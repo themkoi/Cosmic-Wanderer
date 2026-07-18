@@ -1,12 +1,11 @@
 use freedesktop_desktop_entry::default_paths;
 use image::codecs::png::PngEncoder;
-use log::{debug, error};
+use log::{error};
 use notify::event::{CreateKind, EventKind, ModifyKind, RemoveKind};
 use notify::{RecursiveMode, Watcher, recommended_watcher};
 use rsvg::Loader;
 use serde::Serialize;
 use std::fs::{self, File};
-use std::io::Cursor;
 use std::path::PathBuf;
 use std::{error::Error, io::Write, sync::mpsc::channel, thread};
 
@@ -31,7 +30,7 @@ struct EntryOut<'a> {
 }
 
 use cairo::{Context, Format, ImageSurface, Rectangle};
-use image::{ColorType, ImageEncoder, ImageReader}; // needed imports
+use image::{ColorType, ImageEncoder, ImageReader}; 
 
 pub fn render_svg_to_compressed(path: &str, width: i32, height: i32) -> (Vec<u8>, u32, u32) {
     let handle = Loader::new().read_path(path).unwrap();
@@ -45,11 +44,10 @@ pub fn render_svg_to_compressed(path: &str, width: i32, height: i32) -> (Vec<u8>
         renderer
             .render_document(&cr, &Rectangle::new(0.0, 0.0, width as f64, height as f64))
             .unwrap();
-    } // <- cr dropped here
+    } 
 
     let mut data = surface.data().unwrap().to_vec();
 
-    // fix channel order if needed
     for px in data.chunks_exact_mut(4) {
         let a = px[3] as u32;
 
@@ -78,25 +76,41 @@ pub fn render_svg_to_compressed(path: &str, width: i32, height: i32) -> (Vec<u8>
 }
 
 fn load_icon_compressed(path: &str, width: i32, height: i32) -> (Vec<u8>, u32, u32) {
-    // SVG -> render to raster, compress to QOI
+    let std_path = std::path::Path::new(path);
+    if !std_path.exists() || std_path.is_dir() {
+        return (vec![], 0, 0);
+    }
+
     if path.ends_with(".svg") {
         return render_svg_to_compressed(path, width, height);
     }
 
-    // Raster image -> compress to QOI
+    if let Ok(mut file) = File::open(path) {
+        let mut buffer = [0u8; 64];
+        if let Ok(bytes_read) = std::io::Read::read(&mut file, &mut buffer) {
+            if let Ok(utf8_str) = std::str::from_utf8(&buffer[..bytes_read]) {
+                if utf8_str.contains("<svg") || utf8_str.contains("<?xml") {
+                    return render_svg_to_compressed(path, width, height);
+                }
+            }
+        }
+    }
+
     if let Ok(reader) = ImageReader::open(path) {
-        // unwrap the decode result
-        let img = reader.decode().expect("Failed to decode image");
-        let rgba_img = img.to_rgba8(); // now this works
-        let (w, h) = rgba_img.dimensions();
+        if let Ok(guessed_reader) = reader.with_guessed_format() {
+            if let Ok(img) = guessed_reader.decode() {
+                let rgba_img = img.to_rgba8();
+                let (w, h) = rgba_img.dimensions();
 
-        let mut buf = Vec::new();
-        let encoder = PngEncoder::new(&mut buf);
-        encoder
-            .write_image(rgba_img.as_raw(), w, h, ColorType::Rgba8.into())
-            .ok();
+                let mut buf = Vec::new();
+                let encoder = PngEncoder::new(&mut buf);
+                encoder
+                    .write_image(rgba_img.as_raw(), w, h, ColorType::Rgba8.into())
+                    .ok();
 
-        return (buf, w, h);
+                return (buf, w, h);
+            }
+        }
     }
 
     (vec![], 0, 0)

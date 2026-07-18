@@ -2,6 +2,7 @@ use freedesktop_desktop_entry::{DesktopEntry, Iter, default_paths, get_languages
 use freedesktop_icons::lookup;
 use log::debug;
 use std::collections::HashSet;
+use std::path::Path;
 
 #[derive(Clone)]
 pub struct NormalDesktopEntry {
@@ -54,7 +55,6 @@ impl DesktopEntryManager {
     ) -> Vec<NormalDesktopEntry> {
         let mut entries = Vec::new();
         let blacklist: HashSet<String> = blacklist.into_iter().collect();
-
         let mut seen_names: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         for entry in &self.desktop_entries {
@@ -63,13 +63,11 @@ impl DesktopEntryManager {
                 None => continue,
             };
 
-            // debug!("Entry.appid is: {}", entry.appid);
             if blacklist.contains(&entry.appid) {
                 continue;
             }
 
             let normalized_name = normalize_name(&name);
-
             let mut replace = false;
             let mut index_opt: Option<usize> = None;
 
@@ -99,32 +97,37 @@ impl DesktopEntryManager {
             }
 
             let icon_name = entry.icon().unwrap_or_default().to_string();
+            let mut icon_path = String::new();
 
-            let mut icon = lookup(&icon_name)
-                .with_cache()
-                .with_size(*icon_size)
-                .with_theme(&icon_theme)
-                .find();
+            if !icon_name.is_empty() && Path::new(&icon_name).is_absolute() {
+                icon_path = icon_name.clone();
+            }
 
-            let mut icon_path = icon.unwrap_or_default().to_string_lossy().to_string();
+            if icon_path.is_empty() && !icon_name.is_empty() {
+                let icon = lookup(&icon_name)
+                    .with_cache()
+                    .with_size(*icon_size)
+                    .with_theme(icon_theme)
+                    .find();
+
+                icon_path = icon.unwrap_or_default().to_string_lossy().to_string();
+            }
 
             if icon_path.is_empty() {
-                icon = lookup("application-x-executable")
+                let icon = lookup("application-x-executable")
                     .with_size(*icon_size)
                     .with_cache()
-                    .with_theme(&icon_theme)
+                    .with_theme(icon_theme)
                     .find();
                 icon_path = icon.unwrap_or_default().to_string_lossy().to_string();
             }
 
-            // Get required fields with fallbacks
             let app_name = entry.name(&self.locales).unwrap_or_default().to_string();
             let exec = entry.exec().unwrap_or_default().to_string();
             let icon = icon_path;
             let comment = entry.comment(&self.locales).unwrap_or_default().to_string();
             let appid = entry.appid.clone();
 
-            // Create the normalized entry
             let nde = NormalDesktopEntry {
                 app_name,
                 exec,
