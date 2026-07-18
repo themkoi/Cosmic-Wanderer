@@ -18,8 +18,6 @@ use std::{
 };
 use std::{fs, process, vec};
 
-use dirs::cache_dir;
-
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use std::cmp::Ordering;
@@ -123,19 +121,11 @@ fn theme_from_config(theme: &config::ThemeConfig) -> ThemeSlint {
     }
 }
 
-fn get_cache_folder() -> PathBuf {
-    let mut path = cache_dir().unwrap();
-    path.push("cosmic-wanderer");
-    fs::create_dir_all(&path).unwrap();
-
-    path
-}
-
 fn fetch_entries_from_file() -> Vec<EntryIn> {
-    let mut cache = get_cache_folder();
-    cache.push("entries.txt");
+    let mut location = PathBuf::from("/tmp/cosmic-wanderer/");
+    location.push("entries.txt");
 
-    let mut file = match File::open(cache) {
+    let mut file = match File::open(location) {
         Ok(f) => f,
         Err(e) => {
             error!("file open failed: {}", e);
@@ -173,7 +163,6 @@ fn create_slint_items(normalized_entries: &[Entry], grid_config: config::GridCon
         });
     }
 
-    // Apply grid padding if enabled
     let mut max_pages = 0;
     if grid_config.enabled {
         let page_size = (grid_config.row as usize) * (grid_config.col as usize);

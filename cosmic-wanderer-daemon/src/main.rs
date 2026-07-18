@@ -1,15 +1,14 @@
 use freedesktop_desktop_entry::default_paths;
 use image::codecs::png::PngEncoder;
-use log::{error};
+use log::error;
 use notify::event::{CreateKind, EventKind, ModifyKind, RemoveKind};
 use notify::{RecursiveMode, Watcher, recommended_watcher};
 use rsvg::Loader;
 use serde::Serialize;
 use std::fs::{self, File};
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::{error::Error, io::Write, sync::mpsc::channel, thread};
-
-use dirs::cache_dir;
 
 mod entries;
 use entries::{DesktopEntryManager, NormalDesktopEntry};
@@ -30,7 +29,7 @@ struct EntryOut<'a> {
 }
 
 use cairo::{Context, Format, ImageSurface, Rectangle};
-use image::{ColorType, ImageEncoder, ImageReader}; 
+use image::{ColorType, ImageEncoder, ImageReader};
 
 pub fn render_svg_to_compressed(path: &str, width: i32, height: i32) -> (Vec<u8>, u32, u32) {
     let handle = Loader::new().read_path(path).unwrap();
@@ -44,7 +43,7 @@ pub fn render_svg_to_compressed(path: &str, width: i32, height: i32) -> (Vec<u8>
         renderer
             .render_document(&cr, &Rectangle::new(0.0, 0.0, width as f64, height as f64))
             .unwrap();
-    } 
+    }
 
     let mut data = surface.data().unwrap().to_vec();
 
@@ -69,7 +68,12 @@ pub fn render_svg_to_compressed(path: &str, width: i32, height: i32) -> (Vec<u8>
     let encoder = PngEncoder::new(&mut buf);
 
     encoder
-        .write_image(&data, width.try_into().unwrap(), height.try_into().unwrap(), ColorType::Rgba8.into())
+        .write_image(
+            &data,
+            width.try_into().unwrap(),
+            height.try_into().unwrap(),
+            ColorType::Rgba8.into(),
+        )
         .ok();
 
     (buf, width as u32, height as u32)
@@ -137,21 +141,16 @@ fn format_entries(entries: &[NormalDesktopEntry], size: i32) -> String {
     serde_json::to_string(&data).unwrap()
 }
 
-fn get_cache_folder() -> PathBuf {
-    let mut path = cache_dir().unwrap();
-    path.push("cosmic-wanderer");
-    fs::create_dir_all(&path).unwrap();
-
-    path
-}
-
 fn save_compressed(entries: &[NormalDesktopEntry], size: i32) {
     let data = {
         let locked = entries;
         format_entries(&locked, size)
     };
 
-    let mut location = get_cache_folder();
+    let mut location = PathBuf::from_str("/tmp/cosmic-wanderer/").unwrap();
+    if let Err(e) = fs::create_dir_all(&location) {
+        log::error!("Failed to create directory: {}", e);
+    }
     location.push("entries.txt");
     let mut file = File::create(location).unwrap();
 
